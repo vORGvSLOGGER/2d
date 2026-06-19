@@ -3,33 +3,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>2D Base Defense</title>
+  <title>2D Castle Defense</title>
   <style>
     :root {
-      --bg: #060817;
-      --panel: rgba(10, 14, 27, .78);
-      --panel2: rgba(17, 24, 39, .94);
+      --bg: #050716;
+      --panel: rgba(10, 15, 30, .78);
+      --panel-strong: rgba(15, 23, 42, .94);
       --line: rgba(255,255,255,.13);
       --muted: #9aa7bd;
-      --txt: #f8fafc;
+      --text: #f8fafc;
       --gold: #facc15;
-      --red: #ef4444;
       --green: #22c55e;
+      --red: #ef4444;
       --blue: #38bdf8;
-      --violet: #8b5cf6;
+      --purple: #8b5cf6;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      overflow-x: hidden;
-      color: var(--txt);
+      color: var(--text);
       font-family: Tahoma, Arial, sans-serif;
       background:
-        radial-gradient(circle at 18% 8%, rgba(56,189,248,.23), transparent 28%),
-        radial-gradient(circle at 85% 0%, rgba(250,204,21,.17), transparent 28%),
-        radial-gradient(circle at 52% 115%, rgba(139,92,246,.20), transparent 32%),
-        linear-gradient(135deg, #050713, #0f172a 58%, #111827);
+        radial-gradient(circle at 12% 4%, rgba(56,189,248,.22), transparent 30%),
+        radial-gradient(circle at 88% 0%, rgba(250,204,21,.16), transparent 28%),
+        radial-gradient(circle at 50% 118%, rgba(139,92,246,.18), transparent 34%),
+        linear-gradient(135deg, #040615, #0f172a 56%, #111827);
+      overflow-x: hidden;
     }
     body::before {
       content: "";
@@ -39,18 +39,18 @@
       background-image:
         linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
-      background-size: 54px 54px;
-      mask-image: linear-gradient(to bottom, rgba(0,0,0,.9), transparent 85%);
+      background-size: 56px 56px;
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,.9), transparent 86%);
     }
-    .app { width: min(1420px, 100%); margin: 0 auto; padding: 18px; position: relative; }
-    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .app { width: min(1480px, 100%); margin: 0 auto; padding: 18px; position: relative; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
     .brand { display: flex; align-items: center; gap: 12px; }
     .logo {
-      width: 52px; height: 52px; border-radius: 18px;
-      display: grid; place-items: center; color: #0f172a;
-      font-weight: 1000; font-size: 20px;
-      background: linear-gradient(135deg, #fff7ad, #facc15 45%, #f97316);
-      box-shadow: 0 16px 55px rgba(250,204,21,.26), inset 0 1px 0 rgba(255,255,255,.75);
+      width: 54px; height: 54px; border-radius: 18px;
+      display: grid; place-items: center;
+      color: #111827; font-weight: 1000; font-size: 21px;
+      background: linear-gradient(135deg, #fff7ad, #facc15 45%, #fb923c);
+      box-shadow: 0 16px 58px rgba(250,204,21,.25), inset 0 1px 0 rgba(255,255,255,.75);
     }
     h1 { margin: 0; font-size: clamp(22px, 3vw, 38px); letter-spacing: -.05em; }
     .subtitle { color: var(--muted); font-size: 13px; margin-top: 5px; }
@@ -73,19 +73,10 @@
     .primary { border-color: transparent; background: linear-gradient(135deg, #2563eb, #7c3aed); }
     .danger { border-color: transparent; background: linear-gradient(135deg, #dc2626, #f97316); }
     .success { border-color: transparent; background: linear-gradient(135deg, #16a34a, #059669); }
-    .gold { border-color: transparent; background: linear-gradient(135deg, #b45309, #facc15); color: #111827; }
-
     .screen { display: none; }
     .screen.active { display: block; }
-
-    .hero {
-      display: grid;
-      grid-template-columns: 1.1fr .9fr;
-      gap: 16px;
-      align-items: stretch;
-      min-height: 560px;
-    }
-    .hero-card, .panel, .stat, .mode-card, .upgrade-card {
+    .hero { display: grid; grid-template-columns: 1.08fr .92fr; gap: 16px; min-height: 580px; }
+    .hero-card, .panel, .stat, .mode-card, .upgrade-card, .mini-card {
       border: 1px solid var(--line);
       background: var(--panel);
       backdrop-filter: blur(12px);
@@ -95,65 +86,70 @@
     .hero-card { padding: clamp(22px, 4vw, 42px); position: relative; overflow: hidden; }
     .hero-card::after {
       content: "";
-      position: absolute; inset: auto -70px -85px auto;
-      width: 260px; height: 260px; border-radius: 999px;
-      background: radial-gradient(circle, rgba(250,204,21,.20), transparent 68%);
+      position: absolute; inset: auto -80px -95px auto;
+      width: 290px; height: 290px; border-radius: 999px;
+      background: radial-gradient(circle, rgba(250,204,21,.22), transparent 68%);
     }
     .tag { display: inline-flex; gap: 8px; align-items: center; color: #fde68a; background: rgba(250,204,21,.10); border: 1px solid rgba(250,204,21,.22); padding: 8px 12px; border-radius: 999px; font-weight: 900; font-size: 13px; }
     .hero-title { margin: 18px 0 10px; font-size: clamp(38px, 7vw, 82px); line-height: .98; letter-spacing: -.08em; }
-    .hero-desc { color: #cbd5e1; line-height: 1.9; max-width: 720px; margin: 0 0 20px; }
+    .hero-desc { color: #cbd5e1; line-height: 1.9; max-width: 740px; margin: 0 0 20px; }
     .mode-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 18px; }
-    .mode-card { padding: 18px; cursor: pointer; transition: .18s ease; min-height: 188px; position: relative; overflow: hidden; }
-    .mode-card:hover { transform: translateY(-3px); border-color: rgba(250,204,21,.5); }
-    .mode-card h3 { margin: 0 0 8px; font-size: 23px; }
-    .mode-card p { margin: 0; color: var(--muted); line-height: 1.7; font-size: 13px; }
-    .mode-icon { width: 62px; height: 62px; border-radius: 22px; display: grid; place-items: center; margin-bottom: 14px; font-size: 27px; background: rgba(255,255,255,.10); }
-    .preview { padding: 0; overflow: hidden; min-height: 560px; position: relative; }
-    #previewCanvas { width: 100%; height: 100%; display: block; min-height: 560px; }
-
-    .hud { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 14px; }
+    .mode-card { padding: 18px; cursor: pointer; transition: .18s ease; min-height: 210px; position: relative; overflow: hidden; }
+    .mode-card:hover { transform: translateY(-3px); border-color: rgba(250,204,21,.55); }
+    .mode-card h3 { margin: 0 0 8px; font-size: 24px; }
+    .mode-card p { margin: 0; color: var(--muted); line-height: 1.75; font-size: 13px; }
+    .mode-icon { width: 64px; height: 64px; border-radius: 23px; display: grid; place-items: center; margin-bottom: 14px; font-size: 28px; background: rgba(255,255,255,.10); }
+    .preview { padding: 0; overflow: hidden; min-height: 580px; position: relative; }
+    #previewCanvas { width: 100%; height: 100%; display: block; min-height: 580px; }
+    .hud { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; margin-bottom: 14px; }
     .stat { padding: 12px; min-height: 76px; }
     .label { color: var(--muted); font-size: 12px; margin-bottom: 7px; }
-    .value { font-size: 17px; font-weight: 1000; line-height: 1.2; }
+    .value { font-size: 16px; font-weight: 1000; line-height: 1.2; }
     .bar { height: 9px; border-radius: 99px; overflow: hidden; background: rgba(239,68,68,.24); margin-top: 8px; }
     .bar > div { height: 100%; width: 100%; background: linear-gradient(90deg, #22c55e, #facc15); transition: width .18s ease; }
-
-    .game-layout { display: grid; grid-template-columns: minmax(0, 1fr) 326px; gap: 14px; align-items: stretch; }
-    .stage { position: relative; min-height: 560px; border-radius: 28px; overflow: hidden; border: 1px solid rgba(255,255,255,.18); background: #111827; box-shadow: 0 30px 90px rgba(0,0,0,.45); }
-    #gameCanvas { width: 100%; height: 100%; display: block; min-height: 560px; cursor: crosshair; touch-action: none; }
+    .phase-build { color: #facc15; }
+    .phase-attack { color: #ef4444; }
+    .game-layout { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 14px; align-items: stretch; }
+    .stage { position: relative; min-height: 585px; border-radius: 28px; overflow: hidden; border: 1px solid rgba(255,255,255,.18); background: #111827; box-shadow: 0 30px 90px rgba(0,0,0,.45); }
+    #gameCanvas { width: 100%; height: 100%; display: block; min-height: 585px; cursor: crosshair; touch-action: none; }
     .overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: linear-gradient(135deg, rgba(5,8,19,.82), rgba(15,23,42,.52)); opacity: 0; pointer-events: none; transition: .18s ease; }
     .overlay.show { opacity: 1; pointer-events: auto; }
-    .modal { width: min(640px, 100%); background: rgba(15,23,42,.94); border: 1px solid rgba(255,255,255,.18); border-radius: 30px; padding: 26px; box-shadow: 0 32px 100px rgba(0,0,0,.55); }
+    .modal { width: min(660px, 100%); background: rgba(15,23,42,.95); border: 1px solid rgba(255,255,255,.18); border-radius: 30px; padding: 26px; box-shadow: 0 32px 100px rgba(0,0,0,.55); }
     .modal h2 { margin: 0 0 8px; font-size: clamp(30px, 5vw, 56px); letter-spacing: -.07em; }
     .modal p { margin: 0 0 18px; color: #cbd5e1; line-height: 1.85; }
     .side { display: flex; flex-direction: column; gap: 12px; }
     .panel { padding: 14px; }
     .panel h3 { margin: 0 0 12px; font-size: 17px; }
-    .upgrade-card { padding: 12px; margin-bottom: 10px; }
-    .upgrade-card strong { display: block; margin-bottom: 6px; }
-    .upgrade-card p { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .upgrade-card, .mini-card { padding: 12px; margin-bottom: 10px; }
+    .upgrade-card strong, .mini-card strong { display: block; margin-bottom: 6px; }
+    .upgrade-card p, .mini-card p { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.65; }
     .upgrade-card button { width: 100%; }
     #toast { min-height: 24px; color: var(--gold); font-weight: 1000; margin-bottom: 10px; }
     .lane-buttons { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
     .lane-buttons button { padding: 11px 0; }
-    .log { min-height: 72px; color: #cbd5e1; font-size: 13px; line-height: 1.7; }
+    .log { min-height: 70px; color: #cbd5e1; font-size: 13px; line-height: 1.7; }
     .kbd { display: inline-block; min-width: 23px; padding: 2px 7px; border-radius: 8px; background: rgba(255,255,255,.11); border: 1px solid rgba(255,255,255,.16); color: white; font-weight: 1000; }
-
-    @media (max-width: 1100px) {
+    .challenge-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+    .choice-row { display: flex; gap: 7px; flex-wrap: wrap; }
+    .xo-grid { direction: ltr; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+    .xo-cell { min-height: 52px; font-size: 24px; padding: 0; }
+    .hidden { display: none !important; }
+    @media (max-width: 1180px) {
       .hero, .game-layout { grid-template-columns: 1fr; }
-      .hud { grid-template-columns: repeat(3, 1fr); }
-      .preview, #previewCanvas { min-height: 360px; }
-      .stage, #gameCanvas { min-height: 430px; }
+      .hud { grid-template-columns: repeat(4, 1fr); }
+      .preview, #previewCanvas { min-height: 370px; }
+      .stage, #gameCanvas { min-height: 450px; }
     }
-    @media (max-width: 680px) {
+    @media (max-width: 720px) {
       .app { padding: 10px; }
       .topbar { flex-direction: column; align-items: flex-start; }
       .actions { width: 100%; }
       .actions button { flex: 1; }
       .mode-grid { grid-template-columns: 1fr; }
       .hud { grid-template-columns: repeat(2, 1fr); }
-      .stage, #gameCanvas { min-height: 370px; }
+      .stage, #gameCanvas { min-height: 380px; }
       .hero-card { padding: 20px; }
+      .game-layout { gap: 10px; }
     }
   </style>
 </head>
@@ -163,8 +159,8 @@
       <div class="brand">
         <div class="logo">2D</div>
         <div>
-          <h1>حارس القاعدة</h1>
-          <div class="subtitle">نسخة مطوّرة: طور سريع + Tycoon</div>
+          <h1>حارس القلعة</h1>
+          <div class="subtitle">طور سريع + Tycoon بدورات بناء وهجوم</div>
         </div>
       </div>
       <div class="actions">
@@ -173,80 +169,45 @@
         <button id="restartBtn" class="danger">إعادة</button>
       </div>
     </section>
-
     <section id="menuScreen" class="screen active">
       <div class="hero">
         <div class="hero-card">
-          <span class="tag">⚔️ 2D Defense Prototype</span>
-          <h2 class="hero-title">ادفع الوحوش. ابنِ القاعدة. افتح الأسلحة.</h2>
-          <p class="hero-desc">هذه النسخة رفعت مستوى اللعبة من مجرد دوائر إلى تجربة أوضح: واجهة رئيسية، طور سريع، وطور Tycoon يجمع بين الدفاع وتطوير الدخل والقاعدة.</p>
+          <span class="tag">🏰 Castle Defense Prototype</span>
+          <h2 class="hero-title">ابنِ القلعة. اكسب التحديات. اصمد وقت الهجوم.</h2>
+          <p class="hero-desc">الطور السريع قتال مباشر على المسارات. أما Tycoon فهو دورة بناء حقيقية: وقت تطوير وجمع عملات عبر تحديات، ثم وقت هجوم وحوش، ثم ترجع للبناء.</p>
           <div class="mode-grid">
-            <div class="mode-card" id="quickModeCard">
-              <div class="mode-icon">🎯</div>
-              <h3>الطور السريع</h3>
-              <p>وحوش تأتي من اليمين. أنت تطلق على المسارات بسرعة. مناسب للتجربة المباشرة والقتال السريع.</p>
-            </div>
-            <div class="mode-card" id="tycoonModeCard">
-              <div class="mode-icon">🏭</div>
-              <h3>Tycoon Mode</h3>
-              <p>تجمع دخل تلقائي، تطور مصانع، ترفع الجدار، وتدير اقتصاد القاعدة أثناء الدفاع.</p>
-            </div>
+            <div class="mode-card" id="quickModeCard"><div class="mode-icon">🎯</div><h3>الطور السريع</h3><p>نفس فكرة الإطلاق على المسارات. الوحوش تتقدم بسرعة، وأنت تدافع فوراً بدون مرحلة بناء.</p></div>
+            <div class="mode-card" id="tycoonModeCard"><div class="mode-icon">🏗️</div><h3>Tycoon Mode</h3><p>قلعتك في المنتصف. مرحلة بناء وتحديات ضد بوت، ثم مرحلة هجوم. طور السور، الأبراج، الدخل، والحدادة.</p></div>
           </div>
         </div>
-        <div class="hero-card preview">
-          <canvas id="previewCanvas" width="640" height="560"></canvas>
-        </div>
+        <div class="hero-card preview"><canvas id="previewCanvas" width="640" height="580"></canvas></div>
       </div>
     </section>
-
     <section id="gameScreen" class="screen">
       <section class="hud">
         <div class="stat"><div class="label">الطور</div><div class="value" id="modeValue">-</div></div>
-        <div class="stat"><div class="label">الموجة</div><div class="value" id="waveValue">1</div></div>
-        <div class="stat"><div class="label">القاعدة</div><div class="value" id="baseValue">Lv.1</div></div>
+        <div class="stat"><div class="label">المرحلة</div><div class="value" id="phaseValue">-</div></div>
+        <div class="stat"><div class="label">المؤقت</div><div class="value" id="timerValue">00</div></div>
+        <div class="stat"><div class="label">الدورة/الموجة</div><div class="value" id="waveValue">1</div></div>
+        <div class="stat"><div class="label">القلعة</div><div class="value" id="castleValue">Lv.1</div></div>
         <div class="stat"><div class="label">الصحة</div><div class="value" id="healthValue">120 / 120</div><div class="bar"><div id="healthBar"></div></div></div>
         <div class="stat"><div class="label">العملات</div><div class="value" id="coinsValue">0</div></div>
         <div class="stat"><div class="label">السلاح</div><div class="value" id="weaponValue">-</div></div>
-        <div class="stat"><div class="label">أفضل موجة</div><div class="value" id="bestValue">0</div></div>
       </section>
-
       <section class="game-layout">
         <div class="stage">
           <canvas id="gameCanvas" width="1280" height="720"></canvas>
-          <div class="overlay" id="overlay">
-            <div class="modal">
-              <h2 id="overlayTitle">جاهز؟</h2>
-              <p id="overlayText">ابدأ المعركة.</p>
-              <button id="overlayBtn" class="primary">متابعة</button>
-            </div>
-          </div>
+          <div class="overlay" id="overlay"><div class="modal"><h2 id="overlayTitle">جاهز؟</h2><p id="overlayText">ابدأ المعركة.</p><button id="overlayBtn" class="primary">متابعة</button></div></div>
         </div>
-
         <aside class="side">
-          <div class="panel">
-            <h3 id="sideTitle">مركز التطوير</h3>
-            <div id="toast"></div>
-            <div id="upgrades"></div>
-          </div>
-          <div class="panel">
-            <h3>إطلاق سريع</h3>
-            <div class="lane-buttons">
-              <button data-lane="0">1</button>
-              <button data-lane="1">2</button>
-              <button data-lane="2">3</button>
-              <button data-lane="3">4</button>
-              <button data-lane="4">5</button>
-            </div>
-          </div>
-          <div class="panel">
-            <h3>معلومات</h3>
-            <div class="log" id="logText">اختر طوراً من الرئيسية.</div>
-          </div>
+          <div class="panel"><h3 id="sideTitle">مركز التطوير</h3><div id="toast"></div><div id="upgrades"></div></div>
+          <div class="panel" id="challengePanel"><h3>تحديات البناء</h3><div class="mini-card"><p>في Tycoon، التحديات تعمل فقط أثناء مرحلة البناء وتمنحك عملات للتطوير قبل الهجوم.</p><div class="challenge-grid"><button id="xoBtn">XO</button><button id="rpsBtn">حجرة ورقة مقص</button><button id="guessBtn">تخمين رقم</button></div><div id="miniGame"></div></div></div>
+          <div class="panel"><h3>إطلاق سريع</h3><div class="lane-buttons"><button data-lane="0">1</button><button data-lane="1">2</button><button data-lane="2">3</button><button data-lane="3">4</button><button data-lane="4">5</button></div></div>
+          <div class="panel"><h3>معلومات</h3><div class="log" id="logText">اختر طوراً من الرئيسية.</div></div>
         </aside>
       </section>
     </section>
   </main>
-
   <script src="game.js"></script>
 </body>
 </html>
