@@ -3,74 +3,397 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>2D Defense Game</title>
+  <title>2D Base Defense</title>
   <style>
+    :root {
+      --bg: #070a12;
+      --panel: rgba(12, 17, 30, 0.78);
+      --panel-strong: rgba(15, 23, 42, 0.92);
+      --border: rgba(148, 163, 184, 0.22);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --gold: #facc15;
+      --green: #22c55e;
+      --red: #ef4444;
+      --blue: #38bdf8;
+    }
+
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       min-height: 100vh;
-      background: radial-gradient(circle at top, #2f3744, #111318 60%);
+      color: var(--text);
+      font-family: Tahoma, Arial, sans-serif;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(56, 189, 248, 0.24), transparent 32%),
+        radial-gradient(circle at 80% 15%, rgba(250, 204, 21, 0.16), transparent 34%),
+        linear-gradient(135deg, #050816 0%, #0f172a 54%, #111827 100%);
+      overflow-x: hidden;
+    }
+
+    .app {
+      width: min(1320px, 100%);
+      margin: 0 auto;
+      padding: 18px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 220px;
+    }
+
+    .logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #facc15, #f97316);
+      color: #111827;
+      box-shadow: 0 12px 40px rgba(249, 115, 22, 0.28);
+      font-weight: 900;
+      font-size: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(20px, 3vw, 34px);
+      letter-spacing: -0.04em;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+
+    button {
+      border: 0;
       color: #fff;
-      font-family: Arial, sans-serif;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.16);
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: 160ms ease;
+      font-family: inherit;
+    }
+
+    button:hover { transform: translateY(-1px); background: rgba(255,255,255,0.16); }
+    button:active { transform: translateY(0); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    .primary { background: linear-gradient(135deg, #2563eb, #7c3aed); border-color: transparent; }
+    .danger { background: linear-gradient(135deg, #dc2626, #f97316); border-color: transparent; }
+    .success { background: linear-gradient(135deg, #16a34a, #059669); border-color: transparent; }
+
+    .hud {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .stat, .upgrade-card, .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+      backdrop-filter: blur(10px);
+    }
+
+    .stat {
+      padding: 12px;
+      min-height: 74px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 7px;
+    }
+
+    .value {
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1.2;
+    }
+
+    .health-wrap {
+      height: 9px;
+      border-radius: 99px;
+      overflow: hidden;
+      background: rgba(239, 68, 68, 0.25);
+      margin-top: 8px;
+    }
+
+    #healthBar {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #22c55e, #facc15);
+      transition: width 180ms ease;
+    }
+
+    .game-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 520px;
+      border-radius: 26px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: #111827;
+      box-shadow: 0 28px 80px rgba(0,0,0,0.42);
+    }
+
+    #gameCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      min-height: 520px;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, rgba(7, 10, 18, 0.76), rgba(15, 23, 42, 0.45));
+      padding: 24px;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: 180ms ease;
+    }
+
+    .overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal {
+      width: min(620px, 100%);
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 28px;
+      padding: 24px;
+      box-shadow: 0 28px 90px rgba(0,0,0,0.5);
+    }
+
+    .modal h2 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 5vw, 52px);
+      letter-spacing: -0.06em;
+    }
+
+    .modal p {
+      color: #cbd5e1;
+      line-height: 1.8;
+      margin: 0 0 18px;
+    }
+
+    .side {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
       gap: 12px;
+    }
+
+    .panel {
       padding: 14px;
     }
-    .hud {
-      width: min(920px, 100%);
+
+    .panel h3 {
+      margin: 0 0 12px;
+      font-size: 17px;
+    }
+
+    .upgrade-card {
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+
+    .upgrade-card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .upgrade-card p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .upgrade-card button { width: 100%; }
+
+    .lane-buttons {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 8px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 7px;
     }
-    .card {
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.14);
-      border-radius: 14px;
-      padding: 10px;
-      text-align: center;
-      backdrop-filter: blur(8px);
-      font-weight: 700;
+
+    .lane-buttons button {
+      padding: 11px 0;
+      border-radius: 12px;
     }
-    #message {
-      width: min(920px, 100%);
-      min-height: 28px;
-      text-align: center;
-      color: #ffd86b;
+
+    #toast {
+      min-height: 24px;
+      color: var(--gold);
+      font-weight: 900;
+      margin-bottom: 10px;
+    }
+
+    .log {
+      min-height: 68px;
+      color: #cbd5e1;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .kbd {
+      display: inline-block;
+      min-width: 22px;
+      padding: 2px 7px;
+      border-radius: 7px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.16);
+      color: #fff;
       font-weight: 800;
     }
-    #gameCanvas {
-      width: min(920px, 100%);
-      aspect-ratio: 2 / 1;
-      background: #5d8a2b;
-      border: 2px solid rgba(255,255,255,0.25);
-      border-radius: 18px;
-      box-shadow: 0 18px 60px rgba(0,0,0,0.45);
-      touch-action: manipulation;
+
+    @media (max-width: 1020px) {
+      .hud { grid-template-columns: repeat(3, 1fr); }
+      .game-layout { grid-template-columns: 1fr; }
+      .stage, #gameCanvas { min-height: 420px; }
     }
-    .hint {
-      width: min(920px, 100%);
-      text-align: center;
-      color: #b8c0cc;
-      font-size: 14px;
-    }
-    @media (max-width: 700px) {
+
+    @media (max-width: 640px) {
+      .app { padding: 10px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
       .hud { grid-template-columns: repeat(2, 1fr); }
+      .stat { min-height: 66px; }
+      .value { font-size: 15px; }
+      .stage, #gameCanvas { min-height: 360px; }
+      .actions { width: 100%; }
+      .actions button { flex: 1; }
     }
   </style>
 </head>
 <body>
-  <div class="hud">
-    <div class="card" id="level">المستوى: 1</div>
-    <div class="card" id="health">صحة القاعدة: 100</div>
-    <div class="card" id="score">النقاط: 0</div>
-    <div class="card" id="weapon">السلاح: كرة صغيرة</div>
-  </div>
-  <div id="message"></div>
-  <canvas id="gameCanvas" width="920" height="460"></canvas>
-  <div class="hint">اضغط على أي مسار لإطلاق الكرة والدفاع عن القاعدة.</div>
+  <main class="app">
+    <section class="topbar">
+      <div class="brand">
+        <div class="logo">2D</div>
+        <div>
+          <h1>حارس القاعدة</h1>
+          <div class="subtitle">دفاع، موجات، تطوير قاعدة، أسلحة متغيرة</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="startBtn" class="primary">ابدأ المعركة</button>
+        <button id="pauseBtn">إيقاف مؤقت</button>
+        <button id="restartBtn" class="danger">إعادة</button>
+      </div>
+    </section>
+
+    <section class="hud">
+      <div class="stat"><div class="label">الموجة</div><div class="value" id="waveValue">1</div></div>
+      <div class="stat"><div class="label">القاعدة</div><div class="value" id="baseValue">Lv.1</div></div>
+      <div class="stat"><div class="label">الصحة</div><div class="value" id="healthValue">100 / 100</div><div class="health-wrap"><div id="healthBar"></div></div></div>
+      <div class="stat"><div class="label">العملات</div><div class="value" id="coinsValue">0</div></div>
+      <div class="stat"><div class="label">السلاح</div><div class="value" id="weaponValue">حجر دفاعي</div></div>
+      <div class="stat"><div class="label">أفضل موجة</div><div class="value" id="bestValue">0</div></div>
+    </section>
+
+    <section class="game-layout">
+      <div class="stage">
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+        <div class="overlay show" id="overlay">
+          <div class="modal">
+            <h2 id="overlayTitle">حارس القاعدة</h2>
+            <p id="overlayText">الوحوش قادمة من اليمين. اضغط على المسار لإطلاق السلاح. طوّر القاعدة لفتح أسلحة أقوى.</p>
+            <button id="overlayBtn" class="primary">ابدأ الآن</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="panel">
+          <h3>مركز التطوير</h3>
+          <div id="toast"></div>
+
+          <div class="upgrade-card">
+            <strong>تطوير القاعدة</strong>
+            <p>يزيد الصحة ويفتح سلاح جديد مع كل مستوى.</p>
+            <button id="upgradeBaseBtn" class="success">تطوير</button>
+          </div>
+
+          <div class="upgrade-card">
+            <strong>قوة السلاح</strong>
+            <p>يرفع الضرر ويقصر وقت قتل الوحوش الثقيلة.</p>
+            <button id="upgradePowerBtn">ترقية القوة</button>
+          </div>
+
+          <div class="upgrade-card">
+            <strong>سرعة الإطلاق</strong>
+            <p>يقلل وقت الانتظار بين الطلقات.</p>
+            <button id="upgradeRateBtn">ترقية السرعة</button>
+          </div>
+
+          <div class="upgrade-card">
+            <strong>إصلاح القاعدة</strong>
+            <p>يعيد جزءاً من صحة القاعدة.</p>
+            <button id="repairBtn">إصلاح</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>إطلاق سريع</h3>
+          <div class="lane-buttons">
+            <button data-lane="0">1</button>
+            <button data-lane="1">2</button>
+            <button data-lane="2">3</button>
+            <button data-lane="3">4</button>
+            <button data-lane="4">5</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>تعليمات</h3>
+          <div class="log" id="logText">
+            اضغط على المسار أو استخدم <span class="kbd">1</span> إلى <span class="kbd">5</span>. استخدم <span class="kbd">Space</span> للإيقاف و <span class="kbd">R</span> للإعادة.
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
   <script src="game.js"></script>
 </body>
 </html>
