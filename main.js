@@ -27,6 +27,9 @@
   var particles = [];
   var floats = [];
   var muzzles = [];        // muzzle flashes at the ship when firing
+  var smoke = [];          // funnel smoke puffs
+  var smokeTimer = 0;
+  var shipRecoil = 0;      // 0..1, briefly set when the main gun fires
   var damageFlash = 0;     // red full-screen flash when the ship is hit
   var shakeMag = 0;        // current screen-shake magnitude (px)
   var banner = null;       // { text, life } wave-intro banner
@@ -34,6 +37,16 @@
   var paused = false;
   var muted = false;
   var renderedPhase = null; // so overlays rebuild only on phase change
+
+  // background scenery (regenerated on resize)
+  var stars = [];
+  var clouds = [];
+  var horizonY = 0;
+
+  // emoji icons for the HUD ability buttons and the upgrade rooms (declared
+  // up here so they exist before init() builds the buttons below)
+  var ABILITY_ICONS = { q: '🎆', w: '🔧', e: '⚡', r: '❄️' };
+  var ROOM_ICONS = ['🧭', '💣', '⚙️', '🔋', '🛡️', '💰', '📡', '🧑‍✈️'];
 
   // playfield layout (recomputed on resize)
   var marginLeft = 56, marginRight = 6, padTop = 8, padBottom = 8;
@@ -103,11 +116,12 @@
     var wrap = document.getElementById('abilities');
     ABILITIES.forEach(function (a) {
       var b = document.createElement('button');
-      b.className = 'btn gold ability';
+      b.className = 'ability';
       b.dataset.key = a.key;
       b.innerHTML =
         '<span class="ab-cd"></span>' +
         '<span class="ab-timer"></span>' +
+        '<span class="ab-ico">' + (ABILITY_ICONS[a.key] || '✨') + '</span>' +
         '<span class="ab-name">' + a.name + '</span>' +
         '<span class="ab-hint">' + a.hint + '</span>';
       b.addEventListener('click', function () { playerAbility(a.key); });
@@ -118,14 +132,18 @@
   function buildMenuModes() {
     var wrap = document.getElementById('menu-modes');
     var info = {
-      normal:  'اللعب الكامل',
-      fast:    'أسرع + ذهب مضاعف',
-      endless: 'تحدٍ متصاعد بلا نهاية',
+      normal:  { hint: 'اللعب الكامل', ico: '⚓' },
+      fast:    { hint: 'أسرع + ذهب مضاعف', ico: '⚡' },
+      endless: { hint: 'تحدٍ متصاعد بلا نهاية', ico: '♾️' },
     };
     Object.keys(CONFIG.modes).forEach(function (key) {
+      var meta = info[key] || { hint: '', ico: '🚢' };
       var b = document.createElement('button');
       b.className = 'mode-btn';
-      b.innerHTML = CONFIG.modes[key].label + '<small>' + (info[key] || '') + '</small>';
+      b.innerHTML =
+        '<span class="m-ico">' + meta.ico + '</span>' +
+        '<span class="m-txt">' + CONFIG.modes[key].label +
+          '<small>' + meta.hint + '</small></span>';
       b.addEventListener('click', function () { game.startRun(key); });
       wrap.appendChild(b);
     });
@@ -144,6 +162,33 @@
     canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     marginLeft = Math.max(48, W * 0.12);
+    horizonY = H * 0.28;
+    initScenery();
+  }
+
+  // Generate the static parts of the night sky once per resize.
+  function initScenery() {
+    stars = [];
+    var n = Math.round(W * horizonY / 5000);
+    for (var i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * (horizonY - 6),
+        r: Math.random() * 1.3 + 0.3,
+        tw: Math.random() * Math.PI * 2,
+      });
+    }
+    clouds = [];
+    for (var c = 0; c < 5; c++) {
+      clouds.push({
+        x: Math.random() * (W + 260),
+        y: horizonY * (0.2 + Math.random() * 0.55),
+        w: 70 + Math.random() * 90,
+        h: 12 + Math.random() * 12,
+        speed: 4 + Math.random() * 7,
+        alpha: 0.10 + Math.random() * 0.12,
+      });
+    }
   }
 
   function worldX(x) { return marginLeft + x * (W - marginLeft - marginRight); }
@@ -193,7 +238,8 @@
   function playerFire(lane) {
     if (game.fire(lane)) {
       Sound.play('shoot');
-      muzzles.push({ lane: lane, life: 0.09 });
+      muzzles.push({ lane: lane, life: 0.1 });
+      shipRecoil = 1;
     }
   }
 
@@ -231,6 +277,7 @@
     if (game.phase === 'battle' && !paused) {
       var events = game.update(dt);
       spawnEffects(events);
+      emitSmoke(dt);
     }
     updateEffects(dt);
 
@@ -249,32 +296,34 @@
   /* ===================================================================== */
 
   function drawScene() {
-    var shaking = shakeMag > 0.2 && game.phase === 'battle';
+    drawBackground();
+
+    if (game.phase !== 'battle') {
+      // an idle warship bobbing on the open sea behind the menus
+      drawWarship(W * 0.5, horizonY + 74 + Math.sin(clock * 1.4) * 5, 1.45, 0);
+      return;
+    }
+
+    var shaking = shakeMag > 0.2;
     if (shaking) {
       ctx.save();
       ctx.translate((Math.random() - 0.5) * shakeMag, (Math.random() - 0.5) * shakeMag);
     }
-
-    drawSea();
-    if (game.phase === 'battle') {
-      drawLanes();
-      drawShip();
-      drawMuzzles();
-      game.enemies.forEach(drawEnemy);
-      game.shots.forEach(drawShot);
-      drawParticles();
-      drawFloats();
-    }
-
+    drawLanes();
+    drawShip();
+    drawSmoke();
+    drawMuzzles();
+    game.enemies.forEach(drawEnemy);
+    game.shots.forEach(drawShot);
+    drawParticles();
+    drawFloats();
     if (shaking) ctx.restore();
 
     // overlays that should not be displaced by the shake
-    if (game.phase === 'battle') {
-      drawDamageFlash();
-      drawLowHpWarning();
-      drawCombo();
-      drawBanner();
-    }
+    drawDamageFlash();
+    drawLowHpWarning();
+    drawCombo();
+    drawBanner();
   }
 
   function drawCombo() {
@@ -285,8 +334,8 @@
     ctx.translate(W / 2, 96);
     ctx.scale(pulse, pulse);
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#facc15';
-    ctx.font = '900 22px Tahoma, Arial, sans-serif';
+    ctx.fillStyle = '#ffc63d';
+    ctx.font = '900 22px "Tajawal", Tahoma, sans-serif';
     ctx.fillText('كومبو ×' + mult.toFixed(2).replace(/\.?0+$/, '') + '  (' + game.combo + ')', 0, 0);
     ctx.restore();
     ctx.textAlign = 'start';
@@ -294,13 +343,24 @@
 
   function drawMuzzles() {
     muzzles.forEach(function (mz) {
-      var x = marginLeft + 6;
+      var x = marginLeft + 4;
       var y = laneY(mz.lane);
-      ctx.globalAlpha = Math.max(0, mz.life / 0.09);
+      var a = Math.max(0, mz.life / 0.1);
+      ctx.globalAlpha = a;
       ctx.fillStyle = '#fff3b0';
-      ctx.shadowColor = '#facc15';
-      ctx.shadowBlur = 14;
-      circle(x, y, 8);
+      ctx.shadowColor = '#ffc63d';
+      ctx.shadowBlur = 16;
+      circle(x, y, 5 + a * 5);
+      // quick burst rays
+      ctx.strokeStyle = '#ffe9a0';
+      ctx.lineWidth = 2;
+      for (var k = 0; k < 4; k++) {
+        var ang = k * Math.PI / 2 + 0.3;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(ang) * (10 + a * 8), y + Math.sin(ang) * (10 + a * 8));
+        ctx.stroke();
+      }
       ctx.shadowBlur = 0;
     });
     ctx.globalAlpha = 1;
@@ -325,79 +385,225 @@
     ctx.translate(W / 2, H * 0.32);
     ctx.scale(scale, scale);
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#22d3ee';
-    ctx.font = '900 44px Tahoma, Arial, sans-serif';
+    ctx.fillStyle = '#38e1ff';
+    ctx.font = '900 44px "Tajawal", Tahoma, sans-serif';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 12;
     ctx.fillText(banner.text, 0, 0);
+    ctx.shadowBlur = 0;
     ctx.restore();
     ctx.globalAlpha = 1;
     ctx.textAlign = 'start';
   }
 
-  function drawSea() {
-    var bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#08304f');
-    bg.addColorStop(0.55, '#064e63');
-    bg.addColorStop(1, '#02111f');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
+  var MOON_X_FRAC = 0.78;
 
-    ctx.strokeStyle = 'rgba(125,211,252,.16)';
-    ctx.lineWidth = 2;
-    for (var row = 0; row < 10; row++) {
+  function drawBackground() {
+    var moonX = W * MOON_X_FRAC, moonY = horizonY * 0.42;
+
+    // --- sky ---
+    var sky = ctx.createLinearGradient(0, 0, 0, horizonY + 4);
+    sky.addColorStop(0, '#070a1e');
+    sky.addColorStop(0.55, '#172248');
+    sky.addColorStop(1, '#43406e');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, horizonY + 4);
+
+    // stars
+    ctx.fillStyle = '#dbe7ff';
+    for (var i = 0; i < stars.length; i++) {
+      var st = stars[i];
+      ctx.globalAlpha = (0.35 + 0.65 * Math.abs(Math.sin(clock * 1.5 + st.tw))) * 0.9;
+      circle(st.x, st.y, st.r);
+    }
+    ctx.globalAlpha = 1;
+
+    // moon with soft halo
+    var halo = ctx.createRadialGradient(moonX, moonY, 2, moonX, moonY, 46);
+    halo.addColorStop(0, 'rgba(255,247,224,0.55)');
+    halo.addColorStop(1, 'rgba(255,247,224,0)');
+    ctx.fillStyle = halo; circle(moonX, moonY, 46);
+    ctx.fillStyle = '#fdf3d6'; circle(moonX, moonY, 13);
+
+    // drifting clouds
+    for (var c = 0; c < clouds.length; c++) {
+      var cl = clouds[c];
+      var cx = ((cl.x + clock * cl.speed) % (W + 260)) - 130;
+      ctx.globalAlpha = cl.alpha;
+      ctx.fillStyle = '#1b2548';
       ctx.beginPath();
-      for (var x = 0; x <= W; x += 18) {
-        var y = 20 + row * (H / 9) + Math.sin((x + clock * 70) / 36 + row) * 4;
-        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      ctx.ellipse(cx, cl.y, cl.w, cl.h, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // warm glow along the horizon
+    var glow = ctx.createLinearGradient(0, horizonY - 46, 0, horizonY + 26);
+    glow.addColorStop(0, 'rgba(198,106,58,0)');
+    glow.addColorStop(1, 'rgba(214,120,70,0.45)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, horizonY - 46, W, 72);
+
+    // --- sea ---
+    var sea = ctx.createLinearGradient(0, horizonY, 0, H);
+    sea.addColorStop(0, '#1b5a72');
+    sea.addColorStop(0.22, '#0f4054');
+    sea.addColorStop(1, '#04111d');
+    ctx.fillStyle = sea;
+    ctx.fillRect(0, horizonY, W, H - horizonY);
+
+    // moon reflection shimmer on the water
+    var refl = ctx.createLinearGradient(0, horizonY, 0, H);
+    refl.addColorStop(0, 'rgba(255,239,196,0.5)');
+    refl.addColorStop(1, 'rgba(255,239,196,0)');
+    ctx.fillStyle = refl;
+    for (var ry = horizonY; ry < H; ry += 7) {
+      var ww = 5 + Math.sin(ry * 0.25 + clock * 3) * 4;
+      ctx.fillRect(moonX - ww, ry, ww * 2, 3);
+    }
+
+    // specular wave glints scrolling across the sea
+    ctx.strokeStyle = 'rgba(150,220,255,0.10)';
+    ctx.lineWidth = 2;
+    var rows = 12, step = (H - horizonY) / rows;
+    for (var row = 1; row <= rows; row++) {
+      var yy = horizonY + row * step;
+      ctx.beginPath();
+      for (var x = 0; x <= W; x += 16) {
+        var off = Math.sin((x + clock * 55) / 42 + row * 0.7) * 3;
+        if (x === 0) ctx.moveTo(x, yy + off); else ctx.lineTo(x, yy + off);
       }
       ctx.stroke();
     }
+
+    // vignette to focus the action
+    var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.78);
+    vg.addColorStop(0, 'rgba(2,6,15,0)');
+    vg.addColorStop(1, 'rgba(2,6,15,0.6)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawSmoke() {
+    smoke.forEach(function (p) {
+      ctx.globalAlpha = Math.max(0, p.life / p.max) * 0.4;
+      ctx.fillStyle = '#9fb0c8';
+      circle(p.x, p.y, p.r);
+    });
+    ctx.globalAlpha = 1;
   }
 
   function drawLanes() {
-    ctx.strokeStyle = 'rgba(186,230,253,.20)';
-    ctx.setLineDash([6, 8]);
-    ctx.lineWidth = 1;
+    var laneH = (H - padTop - padBottom) / CONFIG.lanes;
     for (var i = 0; i < CONFIG.lanes; i++) {
-      var y = laneY(i);
+      var top = padTop + i * laneH;
+      if (i % 2 === 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.028)';
+        ctx.fillRect(0, top, W, laneH);
+      }
+      ctx.strokeStyle = 'rgba(160,200,255,0.09)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
+      ctx.moveTo(0, top); ctx.lineTo(W, top);
       ctx.stroke();
     }
+
+    // pulsing defence line the enemies must not cross
+    var dx = worldX(CONFIG.enemyReachX);
+    var pulse = 0.28 + 0.22 * Math.abs(Math.sin(clock * 3));
+    ctx.strokeStyle = 'rgba(255,93,108,' + pulse.toFixed(2) + ')';
+    ctx.setLineDash([5, 8]);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(dx, 0); ctx.lineTo(dx, H);
+    ctx.stroke();
     ctx.setLineDash([]);
   }
 
   function drawShip() {
-    var x = marginLeft - 30;
-    var y = H / 2;
     ctx.save();
-    ctx.translate(x, y);
-    // hull
-    ctx.fillStyle = '#78350f';
-    roundRect(-6, 36, 64, 44, 20);
-    ctx.fill();
-    // sail
-    var grad = ctx.createLinearGradient(0, -60, 60, 90);
-    grad.addColorStop(0, '#dbeafe');
-    grad.addColorStop(0.4, '#38bdf8');
-    grad.addColorStop(1, '#075985');
-    ctx.fillStyle = grad;
+    ctx.translate(shipX(), shipY());
+    ctx.rotate(Math.sin(clock * 1.2) * 0.02); // gentle pitch
+    drawWarship(0, 0, 1.3, shipRecoil);
+    ctx.restore();
+  }
+
+  // A grey naval destroyer facing right (the bow points toward the enemies).
+  // Reused for the player ship and the idle hero ship on the menu.
+  function drawWarship(cx, cy, s, recoil) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(s, s);
+
+    // churning wake trailing off the stern (left)
+    ctx.fillStyle = 'rgba(220,240,255,0.14)';
     ctx.beginPath();
-    ctx.moveTo(8, -54);
-    ctx.lineTo(48, 44);
-    ctx.lineTo(2, 30);
+    ctx.moveTo(-44, -5);
+    ctx.quadraticCurveTo(-92, -3, -132, -6 + Math.sin(clock * 6) * 2);
+    ctx.lineTo(-132, 12);
+    ctx.quadraticCurveTo(-92, 16, -44, 15);
     ctx.closePath();
     ctx.fill();
-    // mast
-    ctx.strokeStyle = '#e0f2fe';
-    ctx.lineWidth = 4;
+
+    // hull
+    var hull = ctx.createLinearGradient(0, -8, 0, 18);
+    hull.addColorStop(0, '#5b6b86');
+    hull.addColorStop(0.5, '#39465f');
+    hull.addColorStop(1, '#222c40');
+    ctx.fillStyle = hull;
     ctx.beginPath();
-    ctx.moveTo(8, -60);
-    ctx.lineTo(8, 70);
-    ctx.stroke();
-    // cannon
-    ctx.fillStyle = '#facc15';
-    ctx.fillRect(50, 44, 22, 6);
+    ctx.moveTo(-46, -6);
+    ctx.lineTo(34, -6);
+    ctx.lineTo(54, 4);          // bow
+    ctx.lineTo(34, 16);
+    ctx.lineTo(-44, 16);
+    ctx.quadraticCurveTo(-54, 5, -46, -6);
+    ctx.closePath();
+    ctx.fill();
+
+    // deck highlight + waterline foam
+    ctx.strokeStyle = '#8aa0c0';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(-43, -5); ctx.lineTo(42, -4); ctx.stroke();
+    ctx.fillStyle = 'rgba(232,246,255,0.55)';
+    ctx.fillRect(-46, 15, 100, 2.4);
+
+    // superstructure + bridge tower
+    var sup = ctx.createLinearGradient(0, -30, 0, -6);
+    sup.addColorStop(0, '#d2ddef');
+    sup.addColorStop(1, '#7c8aa6');
+    ctx.fillStyle = sup;
+    roundRect(-20, -21, 26, 15, 3); ctx.fill();
+    roundRect(-12, -31, 13, 12, 2); ctx.fill();
+    ctx.fillStyle = '#0e1b2e';
+    ctx.fillRect(-17, -17, 20, 3);   // bridge windows
+    ctx.fillRect(-10, -28, 9, 3);
+
+    // funnel
+    ctx.fillStyle = '#2c374e';
+    roundRect(9, -23, 10, 15, 2); ctx.fill();
+    ctx.fillStyle = '#1a2236';
+    ctx.fillRect(9, -23, 10, 3);
+
+    // mast + waving flag
+    ctx.strokeStyle = '#c3d0e6';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(-6, -31); ctx.lineTo(-6, -46); ctx.stroke();
+    ctx.fillStyle = '#38e1ff';
+    var fl = Math.sin(clock * 8) * 2;
+    ctx.beginPath();
+    ctx.moveTo(-6, -46); ctx.lineTo(-19, -43 + fl); ctx.lineTo(-6, -39); ctx.closePath();
+    ctx.fill();
+
+    // main gun turret near the bow (recoils when firing)
+    ctx.save();
+    ctx.translate(28 - recoil * 5, -1);
+    ctx.fillStyle = '#39465f';
+    roundRect(-8, -6, 15, 12, 3); ctx.fill();
+    ctx.fillStyle = '#222c40';
+    ctx.fillRect(5, -2.4, 20, 4.8);   // barrel
+    ctx.restore();
+
     ctx.restore();
   }
 
@@ -405,67 +611,134 @@
     var x = worldX(e.x);
     var y = laneY(e.lane);
     var scale = e.kind === 'boss' ? 1.5 : 1;
+
+    // bow wake foam trailing off the stern (enemies move left, so it's on the right)
+    if (!e.submerged) {
+      var bw = 18 * scale;
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = '#dff1ff';
+      ctx.beginPath();
+      ctx.moveTo(x + bw, y - 6 * scale);
+      ctx.lineTo(x + bw + 32, y - 2 + Math.sin(clock * 8 + e.lane) * 2);
+      ctx.lineTo(x + bw + 32, y + 6);
+      ctx.lineTo(x + bw, y + 8 * scale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
-    if (e.submerged) ctx.globalAlpha = 0.35; // diving: untargetable
+    if (e.submerged) ctx.globalAlpha = 0.4;
 
     if (e.kind === 'sub') {
-      ctx.fillStyle = '#94a3b8';
-      roundRect(-30, -13, 60, 26, 13); ctx.fill();
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(-4, -24, 16, 12);
-      ctx.fillStyle = '#22d3ee';
-      circle(16, -2, 3.5);
+      drawHullGradient(-32, -8, 64, 17, 9, '#7c8aa0', '#2b3850');
+      ctx.fillStyle = '#39465f'; roundRect(-4, -19, 14, 11, 2); ctx.fill();
+      ctx.fillStyle = '#222c40'; ctx.fillRect(3, -26, 2.5, 8);   // periscope
+      ctx.fillStyle = '#38e1ff'; circle(-24, 0, 3);              // running light
     } else if (e.kind === 'raft') {
-      ctx.fillStyle = '#7c2d12';
-      roundRect(-30, -11, 60, 22, 9); ctx.fill();
-      ctx.fillStyle = '#fef3c7';
-      ctx.beginPath();
-      ctx.moveTo(-2, -30); ctx.lineTo(24, -3); ctx.lineTo(-7, -3); ctx.closePath();
-      ctx.fill();
+      drawHullGradient(-30, -9, 60, 19, 5, '#9a6233', '#5c3719');
+      ctx.strokeStyle = '#3f2611'; ctx.lineWidth = 1;
+      for (var px = -22; px <= 22; px += 11) {
+        ctx.beginPath(); ctx.moveTo(px, -9); ctx.lineTo(px, 10); ctx.stroke();
+      }
+      ctx.fillStyle = '#b07b3e'; ctx.fillRect(-8, -20, 18, 11);   // crate
+      ctx.strokeStyle = '#3f2611'; ctx.strokeRect(-8, -20, 18, 11);
+    } else if (e.kind === 'boss') {
+      drawHullGradient(-44, -6, 90, 23, 5, '#566782', '#1c2538');
+      ctx.fillStyle = 'rgba(232,246,255,0.5)'; ctx.fillRect(-44, 15, 90, 2.5);
+      // pagoda bridge
+      ctx.fillStyle = '#cdd8ec';
+      roundRect(-6, -26, 16, 18, 2); ctx.fill();
+      roundRect(-2, -34, 9, 10, 2); ctx.fill();
+      ctx.fillStyle = '#0e1b2e'; ctx.fillRect(-4, -30, 9, 3);
+      // funnels
+      ctx.fillStyle = '#2c374e';
+      roundRect(14, -22, 8, 13, 2); ctx.fill();
+      roundRect(24, -20, 7, 11, 2); ctx.fill();
+      // twin turrets aiming left
+      [-30, -16].forEach(function (tx) {
+        ctx.fillStyle = '#39465f'; roundRect(tx - 7, -3, 14, 11, 3); ctx.fill();
+        ctx.fillStyle = '#222c40'; ctx.fillRect(tx - 21, 0, 16, 4);
+      });
     } else {
-      ctx.fillStyle = e.kind === 'boss' ? '#f97316' : '#22c55e';
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 30, 14, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // tail
-      ctx.beginPath();
-      ctx.moveTo(27, 0); ctx.lineTo(48, -13); ctx.lineTo(48, 13); ctx.closePath();
-      ctx.fill();
-      // eye
-      ctx.fillStyle = '#00131f';
-      circle(-15, -4, 3);
+      // 'fish' — a fast enemy attack boat
+      drawHullBoat('#3ce0a6', '#0c5a45');
+      ctx.fillStyle = '#063b2b'; roundRect(-2, -9, 14, 7, 2); ctx.fill();
+      ctx.fillStyle = 'rgba(214,255,240,0.85)'; ctx.fillRect(-20, 2, 40, 1.4);
     }
+
     ctx.globalAlpha = 1;
     ctx.restore();
 
     if (e.submerged) {
-      // dashed ring marks an untargetable, submerged submarine
-      ctx.strokeStyle = 'rgba(148,163,184,.6)';
+      // dashed ring + bubbles mark an untargetable, submerged submarine
+      ctx.strokeStyle = 'rgba(148,163,184,0.55)';
       ctx.setLineDash([4, 5]);
-      ctx.beginPath();
-      ctx.arc(x, y, 30, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 30, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(190,230,255,0.5)';
+      for (var b = 0; b < 3; b++) {
+        var by = y - ((clock * 22 + b * 14) % 34);
+        circle(x - 6 + b * 5, by, 1.6 + b * 0.4);
+      }
       return; // no health bar while it can't be hit
     }
 
     // health bar
-    var hbw = 60 * scale;
-    ctx.fillStyle = '#ef4444';
-    ctx.fillRect(x - hbw / 2, y - 26 * scale, hbw, 4);
-    ctx.fillStyle = '#22c55e';
-    ctx.fillRect(x - hbw / 2, y - 26 * scale, hbw * Math.max(0, e.hp / e.maxHp), 4);
+    var hbw = 50 * scale, hx = x - hbw / 2, hy = y - 24 * scale;
+    var pct = Math.max(0, e.hp / e.maxHp);
+    ctx.fillStyle = 'rgba(2,8,20,0.7)';
+    roundRect(hx - 1, hy - 1, hbw + 2, 5, 2); ctx.fill();
+    ctx.fillStyle = e.kind === 'boss' ? '#ff7a3d' : (pct > 0.5 ? '#46e39a' : '#ffd45c');
+    ctx.fillRect(hx, hy, hbw * pct, 3);
+  }
+
+  // filled rounded hull with a vertical two-stop gradient
+  function drawHullGradient(x, y, w, h, r, top, bottom) {
+    var g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, top); g.addColorStop(1, bottom);
+    ctx.fillStyle = g;
+    roundRect(x, y, w, h, r); ctx.fill();
+  }
+
+  // sleek speedboat hull (bow pointing left)
+  function drawHullBoat(top, bottom) {
+    var g = ctx.createLinearGradient(0, -8, 0, 9);
+    g.addColorStop(0, top); g.addColorStop(1, bottom);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-28, 1);
+    ctx.lineTo(10, -8);
+    ctx.lineTo(26, -4);
+    ctx.lineTo(26, 6);
+    ctx.lineTo(10, 9);
+    ctx.closePath();
+    ctx.fill();
   }
 
   function drawShot(s) {
     var x = worldX(s.x);
     var y = laneY(s.lane);
-    ctx.fillStyle = '#fde68a';
-    ctx.shadowColor = '#facc15';
-    ctx.shadowBlur = 10;
-    circle(x, y, 6);
+    // tracer trail (behind the shell, toward the ship on the left)
+    var trail = ctx.createLinearGradient(x - 24, y, x, y);
+    trail.addColorStop(0, 'rgba(255,209,102,0)');
+    trail.addColorStop(1, 'rgba(255,233,160,0.9)');
+    ctx.fillStyle = trail;
+    ctx.beginPath();
+    ctx.moveTo(x - 24, y - 1.5);
+    ctx.lineTo(x, y - 3);
+    ctx.lineTo(x, y + 3);
+    ctx.lineTo(x - 24, y + 1.5);
+    ctx.closePath();
+    ctx.fill();
+    // glowing head
+    ctx.fillStyle = '#fff6d0';
+    ctx.shadowColor = '#ffc63d';
+    ctx.shadowBlur = 12;
+    circle(x, y, 4.5);
     ctx.shadowBlur = 0;
   }
 
@@ -522,9 +795,33 @@
     });
   }
 
+  // Ship layout helpers (kept in one place so smoke / muzzle line up with art)
+  function shipX() { return marginLeft - 12; }
+  function shipY() { return H / 2 + Math.sin(clock * 1.6) * 4; }
+
+  function emitSmoke(dt) {
+    smokeTimer -= dt;
+    if (smokeTimer > 0) return;
+    smokeTimer = 0.22;
+    smoke.push({
+      x: shipX() + 16 + (Math.random() - 0.5) * 3,
+      y: shipY() - 30,
+      vx: 10 + Math.random() * 8,
+      vy: -16 - Math.random() * 8,
+      r: 4 + Math.random() * 3,
+      life: 1.1, max: 1.1,
+    });
+  }
+
   function updateEffects(dt) {
     damageFlash = Math.max(0, damageFlash - dt * 2);
     shakeMag = Math.max(0, shakeMag - dt * 40);
+    shipRecoil = Math.max(0, shipRecoil - dt * 6);
+    for (var s = smoke.length - 1; s >= 0; s--) {
+      var pf = smoke[s];
+      pf.x += pf.vx * dt; pf.y += pf.vy * dt; pf.r += 9 * dt; pf.life -= dt;
+      if (pf.life <= 0) smoke.splice(s, 1);
+    }
     for (var i = particles.length - 1; i >= 0; i--) {
       var p = particles[i];
       p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 160 * dt; p.life -= dt;
@@ -553,12 +850,15 @@
 
   function drawFloats() {
     ctx.textAlign = 'center';
-    ctx.font = '900 16px Tahoma, Arial, sans-serif';
+    ctx.font = '900 16px "Tajawal", Tahoma, sans-serif';
     floats.forEach(function (f) {
       ctx.globalAlpha = Math.max(0, Math.min(1, f.life));
-      ctx.fillStyle = '#facc15';
+      ctx.fillStyle = '#ffd45c';
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 6;
       ctx.fillText(f.text, f.x, f.y);
     });
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     ctx.textAlign = 'start';
   }
@@ -591,14 +891,17 @@
   /* ===================================================================== */
 
   function updateHud() {
-    setChip('hud-hp', 'درع', Math.max(0, Math.round(game.hp)) + '/' + game.maxHp);
-    setChip('hud-gold', 'ذهب', game.gold);
-    setChip('hud-energy', 'طاقة', Math.floor(game.energy) + '/' + game.maxEnergy);
-    setChip('hud-wave', 'موجة', game.wave);
-  }
+    var hpPct = game.maxHp ? Math.max(0, game.hp) / game.maxHp : 0;
+    document.getElementById('hp-fill').style.width = (hpPct * 100) + '%';
+    document.getElementById('hp-val').textContent = Math.max(0, Math.round(game.hp)) + '/' + game.maxHp;
+    document.querySelector('.bar-hp').classList.toggle('low', hpPct < 0.3);
 
-  function setChip(id, label, value) {
-    document.getElementById(id).innerHTML = label + ' <b>' + value + '</b>';
+    var enPct = game.maxEnergy ? game.energy / game.maxEnergy : 0;
+    document.getElementById('energy-fill').style.width = (enPct * 100) + '%';
+    document.getElementById('energy-val').textContent = Math.floor(game.energy) + '/' + game.maxEnergy;
+
+    document.getElementById('gold-val').textContent = game.gold;
+    document.getElementById('wave-val').textContent = game.wave;
   }
 
   function updateAbilityButtons() {
@@ -653,10 +956,9 @@
     var c = game.career;
     if (game.best > 0 || c.runs > 0) {
       el.innerHTML =
-        'أفضل موجة: <b>' + game.best + '</b>' +
-        '<br><span style="font-weight:400;color:var(--muted);font-size:13px">' +
-        'محاولات: ' + c.runs + ' • سفن مدمرة: ' + c.kills + ' • إجمالي الذهب: ' + c.gold +
-        '</span>';
+        '🏆 أفضل موجة: <b>' + game.best + '</b>' +
+        '<span class="career">محاولات: <i>' + c.runs + '</i> • ' +
+        'سفن مدمرة: <i>' + c.kills + '</i> • إجمالي الذهب: <i>' + c.gold + '</i></span>';
     } else {
       el.textContent = '';
     }
@@ -666,25 +968,31 @@
     var body = document.getElementById('prep-body');
     var html = '' +
       '<div class="prep-head">' +
-        '<div class="title" style="font-size:34px">التجهيز</div>' +
-        '<div class="best">موجة ' + (game.wave + 1) + '</div>' +
+        '<div class="title">التجهيز</div>' +
+        '<div class="wave-badge">الموجة ' + (game.wave + 1) + '</div>' +
       '</div>' +
-      '<p class="subtitle">الذهب: <b style="color:var(--gold)">' + game.gold + '</b> — رقِّ الغرف ثم ابدأ.</p>' +
+      '<div class="gold-line">🪙 الذهب: <b>' + game.gold + '</b></div>' +
       '<div class="rooms">';
     for (var i = 0; i < ROOMS.length; i++) {
       var r = ROOMS[i];
       var maxed = game.levels[i] >= CONFIG.maxLevel;
       var afford = game.canUpgrade(i);
-      var label = maxed ? 'أقصى مستوى' : ('ترقية — ' + game.upgradeCost(i));
+      var label = maxed ? 'أقصى مستوى' : ('🪙 ' + game.upgradeCost(i));
+      var pips = '<div class="pips">';
+      for (var p = 0; p < CONFIG.maxLevel; p++) {
+        pips += '<i class="' + (p < game.levels[i] ? 'on' : '') + '"></i>';
+      }
+      pips += '</div>';
       html +=
         '<div class="room' + (maxed ? ' maxed' : '') + '">' +
-          '<h3>' + r.name + '</h3>' +
-          '<div class="lv">المستوى ' + game.levels[i] + '/' + CONFIG.maxLevel + '</div>' +
+          '<div class="r-top"><div class="r-ico">' + (ROOM_ICONS[i] || '🔧') + '</div>' +
+            '<h3>' + r.name + '</h3></div>' +
           '<div class="desc">' + r.desc + '</div>' +
+          pips +
           '<button class="buy" data-room="' + i + '"' + (afford ? '' : ' disabled') + '>' + label + '</button>' +
         '</div>';
     }
-    html += '</div><button class="start" id="prep-start">ابدأ الموجة</button>';
+    html += '</div><button class="start" id="prep-start">⚔️ ابدأ الموجة</button>';
     body.innerHTML = html;
 
     body.querySelectorAll('.buy').forEach(function (btn) {
@@ -703,15 +1011,16 @@
     var win = game.lastWin;
     body.innerHTML = '' +
       '<div class="result-card">' +
+        '<div class="result-emoji">' + (win ? '🎉' : '🌊') + '</div>' +
         '<div class="result-title ' + (win ? 'win' : 'lose') + '">' +
           (win ? 'تم صد الموجة' : 'غرقت السفينة') + '</div>' +
         '<div class="result-stats">' +
-          'الموجة <b>' + game.wave + '</b><br>' +
-          'أعداء مُدمَّرة: <b>' + game.kills + '</b><br>' +
-          'ذهب مكتسب: <b>' + game.earned + '</b><br>' +
-          'أفضل موجة: <b>' + game.best + '</b>' +
+          '<div class="rs"><span>🌊 الموجة</span><b>' + game.wave + '</b></div>' +
+          '<div class="rs"><span>💥 أعداء مُدمَّرة</span><b>' + game.kills + '</b></div>' +
+          '<div class="rs"><span>🪙 ذهب مكتسب</span><b>' + game.earned + '</b></div>' +
+          '<div class="rs"><span>🏆 أفضل موجة</span><b>' + game.best + '</b></div>' +
         '</div>' +
-        '<button class="start" id="result-go">' + (win ? 'متابعة' : 'القائمة') + '</button>' +
+        '<button class="start" id="result-go">' + (win ? '⚓ متابعة' : '🏠 القائمة') + '</button>' +
       '</div>';
     document.getElementById('result-go').addEventListener('click', advanceFromResult);
   }

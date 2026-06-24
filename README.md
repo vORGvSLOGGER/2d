@@ -80,3 +80,10 @@ bugs. This version is a clean rewrite that fixes them:
 - Added depth: mechanically distinct enemy types (incl. diving submarines),
   difficulty-gated wave composition, a kill-combo gold multiplier, and
   persistent career stats (runs / kills / total gold) shown on the menu.
+- **Full visual overhaul.** Replaced the flat look with an animated moonlit
+  dusk sea (stars, drifting clouds, moon reflection, wave glints, vignette), a
+  detailed naval warship (bridge, funnel smoke, recoiling gun, waving flag,
+  wake) in place of the old sailboat, distinct enemy vessels with bow wakes,
+  glowing tracer fire, a game-style HUD (HP/energy bars + gold/wave pills), and
+  frosted-glass menus with icons, level pips, and entrance animations
+  (Tajawal webfont with a local fallback).

@@ -3,20 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#020817">
+  <meta name="theme-color" content="#070b1c">
   <title>Sea Tycoon Defense</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <!-- Battle HUD + controls (visible only during a wave) -->
   <div class="app">
     <div class="top" id="hud">
-      <div class="chip hp" id="hud-hp">درع</div>
-      <div class="chip" id="hud-gold">ذهب</div>
-      <div class="chip" id="hud-energy">طاقة</div>
-      <div class="chip" id="hud-wave">موجة</div>
-      <button class="icon-btn" id="btn-mute" aria-label="الصوت">🔊</button>
-      <button class="icon-btn" id="btn-pause" aria-label="إيقاف مؤقت">II</button>
+      <div class="bars">
+        <div class="bar bar-hp">
+          <span class="bar-ico">🛡️</span>
+          <div class="bar-track"><div class="bar-fill" id="hp-fill"></div></div>
+          <span class="bar-val" id="hp-val">0</span>
+        </div>
+        <div class="bar bar-energy">
+          <span class="bar-ico">⚡</span>
+          <div class="bar-track"><div class="bar-fill" id="energy-fill"></div></div>
+          <span class="bar-val" id="energy-val">0</span>
+        </div>
+      </div>
+      <div class="pills">
+        <div class="pill pill-gold"><span>🪙</span><b id="gold-val">0</b></div>
+        <div class="pill pill-wave"><span>🌊</span><b id="wave-val">0</b></div>
+      </div>
+      <div class="hud-btns">
+        <button class="icon-btn" id="btn-mute" aria-label="الصوت">🔊</button>
+        <button class="icon-btn" id="btn-pause" aria-label="إيقاف مؤقت">⏸</button>
+      </div>
     </div>
 
     <div class="stage">
@@ -32,7 +49,8 @@
   <!-- Main menu -->
   <div id="screen-menu" class="screen">
     <div class="panel-wrap">
-      <div class="title">SEA TYCOON<br>DEFENSE</div>
+      <div class="emblem">⚓</div>
+      <div class="title">SEA TYCOON<br><span>DEFENSE</span></div>
       <p class="subtitle">ابنِ سفينتك، ثم صُدّ موجات البحر. رقِّ الغرف بين الموجات لتصمد أطول.</p>
       <div class="best" id="menu-best"></div>
       <div class="modes" id="menu-modes"><!-- mode buttons injected by main.js --></div>
