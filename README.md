@@ -66,6 +66,9 @@ bugs. This version is a clean rewrite that fixes them:
 - **All 8 upgrade rooms now have real, described effects** — three of them
   (Shield, Radar, Crew) did nothing before.
 - **Energy regenerates** during a wave, so later/bigger waves stay playable.
-- Added persistence (best wave), a pause screen, and visual feedback
-  (hit particles, floating gold, damage flash).
-- Split the minified blob into readable, maintainable files with tests.
+- Added persistence (best wave), a pause screen, and lots of game feel:
+  synthesized sound effects with a mute toggle (no audio files — generated at
+  runtime), screen shake, muzzle flashes, hit sparks, floating gold, a
+  wave-intro banner, a low-HP warning, and haptics on mobile.
+- Split the minified blob into readable, maintainable files with tests
+  (model unit tests + a Playwright-driven end-to-end run).

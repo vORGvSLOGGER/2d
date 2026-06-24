@@ -247,7 +247,7 @@ var Game = (function () {
    * stays free of any rendering concern.
    */
   Game.prototype.update = function (dt) {
-    var events = { kills: [], leaks: [] };
+    var events = { kills: [], hits: [], leaks: [] };
     if (this.phase !== 'battle') return events;
     var s = this.stats();
 
@@ -294,6 +294,8 @@ var Game = (function () {
             this.kills++;
             events.kills.push({ x: en.x, lane: en.lane, reward: reward, kind: en.kind });
             this.enemies.splice(m, 1);
+          } else {
+            events.hits.push({ x: en.x, lane: en.lane });
           }
           break;
         }

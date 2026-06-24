@@ -162,6 +162,37 @@ test('energy is spent per shot and regenerates over time', function () {
   assert.ok(g.energy <= g.maxEnergy, 'energy never exceeds the cap');
 });
 
+test('non-lethal shots emit hit events; lethal shots emit kills', function () {
+  var g = new Game();
+  g.startRun('normal');
+  g.startWave();
+  // a tanky enemy parked in lane 0 with a shot just behind it
+  g.enemies = [{ x: 0.10, lane: 0, hp: 1000, maxHp: 1000, speed: 0, reward: 10, kind: 'fish' }];
+  g.shots = [{ x: 0.099, lane: 0, damage: 50, speed: 1.3 }];
+  var ev = g.update(1 / 60);
+  assert.strictEqual(ev.hits.length, 1, 'a connecting non-lethal shot reports a hit');
+  assert.strictEqual(ev.kills.length, 0, 'enemy survived, so no kill');
+  assert.strictEqual(g.enemies.length, 1, 'enemy still on the field');
+
+  g.enemies = [{ x: 0.10, lane: 0, hp: 20, maxHp: 1000, speed: 0, reward: 10, kind: 'fish' }];
+  g.shots = [{ x: 0.099, lane: 0, damage: 50, speed: 1.3 }];
+  ev = g.update(1 / 60);
+  assert.strictEqual(ev.kills.length, 1, 'a lethal shot reports a kill');
+  assert.strictEqual(ev.hits.length, 0, 'a lethal shot is not also a non-lethal hit');
+});
+
+test('sound module loads and never throws without an AudioContext', function () {
+  var Sound = require(path.join(__dirname, '..', 'sound.js'));
+  Sound.init();           // no window/AudioContext in Node -> stays inert
+  Sound.setEnabled(false);
+  assert.strictEqual(Sound.isEnabled(), false);
+  Sound.setEnabled(true);
+  ['shoot', 'hit', 'kill', 'boss', 'damage', 'ability', 'upgrade', 'start', 'win', 'lose'].forEach(function (n) {
+    Sound.play(n); // must be a no-op, not a crash
+  });
+  Sound.play('does-not-exist');
+});
+
 test('best wave is persisted via storage', function () {
   var store = memStorage();
   var g = new Game(store);

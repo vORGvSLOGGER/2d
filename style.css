@@ -51,7 +51,7 @@ button {
 .top {
   padding: 8px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr) auto;
+  grid-template-columns: repeat(4, 1fr) auto auto;
   gap: 6px;
   align-items: center;
 }

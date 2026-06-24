@@ -26,9 +26,13 @@
   // visual-only effect state
   var particles = [];
   var floats = [];
-  var damageFlash = 0;
+  var muzzles = [];        // muzzle flashes at the ship when firing
+  var damageFlash = 0;     // red full-screen flash when the ship is hit
+  var shakeMag = 0;        // current screen-shake magnitude (px)
+  var banner = null;       // { text, life } wave-intro banner
   var clock = 0;
   var paused = false;
+  var muted = false;
   var renderedPhase = null; // so overlays rebuild only on phase change
 
   // playfield layout (recomputed on resize)
@@ -52,12 +56,26 @@
       game.toMenu();
     });
 
+    // sound: load mute preference, wire the toggle, and unlock audio on the
+    // first user gesture (browsers require a gesture before audio can play).
+    muted = loadMuted();
+    Sound.setEnabled(!muted);
+    refreshMuteButton();
+    document.getElementById('btn-mute').addEventListener('click', toggleMute);
+    var unlock = function () {
+      Sound.init();
+      Sound.resume();
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+
     // fire by tapping a lane directly on the playfield
     canvas.addEventListener('pointerdown', function (ev) {
       if (game.phase !== 'battle' || paused) return;
       var rect = canvas.getBoundingClientRect();
-      var lane = laneFromY(ev.clientY - rect.top);
-      game.fire(lane);
+      playerFire(laneFromY(ev.clientY - rect.top));
     });
 
     // keyboard support (desktop / testing)
@@ -75,7 +93,7 @@
       b.className = 'btn';
       b.textContent = String(i + 1);
       (function (lane) {
-        b.addEventListener('click', function () { game.fire(lane); });
+        b.addEventListener('click', function () { playerFire(lane); });
       })(i);
       wrap.appendChild(b);
     }
@@ -92,7 +110,7 @@
         '<span class="ab-timer"></span>' +
         '<span class="ab-name">' + a.name + '</span>' +
         '<span class="ab-hint">' + a.hint + '</span>';
-      b.addEventListener('click', function () { game.useAbility(a.key); });
+      b.addEventListener('click', function () { playerAbility(a.key); });
       wrap.appendChild(b);
     });
   }
@@ -150,10 +168,10 @@
       if (k === '2') game.startRun('fast');
       if (k === '3') game.startRun('endless');
     } else if (game.phase === 'prep') {
-      if (k === 'enter' || k === ' ') game.startWave();
+      if (k === 'enter' || k === ' ') startWave();
     } else if (game.phase === 'battle') {
-      if (k >= '1' && k <= '5') game.fire(parseInt(k, 10) - 1);
-      if (k === 'q' || k === 'w' || k === 'e' || k === 'r') game.useAbility(k);
+      if (k >= '1' && k <= '5') playerFire(parseInt(k, 10) - 1);
+      if (k === 'q' || k === 'w' || k === 'e' || k === 'r') playerAbility(k);
       if (k === 'p' || k === 'escape') togglePause();
     } else if (game.phase === 'result') {
       if (k === ' ' || k === 'enter') advanceFromResult();
@@ -168,6 +186,37 @@
   function advanceFromResult() {
     if (game.lastWin) game.continueAfterWin();
     else game.toMenu();
+  }
+
+  // Player actions funnel through these so input source (button / tap / key)
+  // and audio-visual feedback stay in one place.
+  function playerFire(lane) {
+    if (game.fire(lane)) {
+      Sound.play('shoot');
+      muzzles.push({ lane: lane, life: 0.09 });
+    }
+  }
+
+  function playerAbility(key) {
+    if (game.useAbility(key)) Sound.play('ability');
+  }
+
+  function startWave() {
+    Sound.play('start');
+    game.startWave();
+  }
+
+  function setShake(mag) { shakeMag = Math.max(shakeMag, mag); }
+
+  function toggleMute() {
+    muted = !muted;
+    Sound.setEnabled(!muted);
+    saveMuted(muted);
+    refreshMuteButton();
+  }
+
+  function refreshMuteButton() {
+    document.getElementById('btn-mute').textContent = muted ? '🔇' : '🔊';
   }
 
   /* ===================================================================== */
@@ -200,16 +249,72 @@
   /* ===================================================================== */
 
   function drawScene() {
+    var shaking = shakeMag > 0.2 && game.phase === 'battle';
+    if (shaking) {
+      ctx.save();
+      ctx.translate((Math.random() - 0.5) * shakeMag, (Math.random() - 0.5) * shakeMag);
+    }
+
     drawSea();
     if (game.phase === 'battle') {
       drawLanes();
       drawShip();
+      drawMuzzles();
       game.enemies.forEach(drawEnemy);
       game.shots.forEach(drawShot);
       drawParticles();
       drawFloats();
-      drawDamageFlash();
     }
+
+    if (shaking) ctx.restore();
+
+    // overlays that should not be displaced by the shake
+    if (game.phase === 'battle') {
+      drawDamageFlash();
+      drawLowHpWarning();
+      drawBanner();
+    }
+  }
+
+  function drawMuzzles() {
+    muzzles.forEach(function (mz) {
+      var x = marginLeft + 6;
+      var y = laneY(mz.lane);
+      ctx.globalAlpha = Math.max(0, mz.life / 0.09);
+      ctx.fillStyle = '#fff3b0';
+      ctx.shadowColor = '#facc15';
+      ctx.shadowBlur = 14;
+      circle(x, y, 8);
+      ctx.shadowBlur = 0;
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  function drawLowHpWarning() {
+    if (!game.maxHp || game.hp / game.maxHp >= 0.3) return;
+    var pulse = 0.18 + Math.abs(Math.sin(clock * 4)) * 0.22;
+    ctx.strokeStyle = 'rgba(239,68,68,' + pulse.toFixed(3) + ')';
+    ctx.lineWidth = 14;
+    ctx.strokeRect(7, 7, W - 14, H - 14);
+    ctx.lineWidth = 1;
+  }
+
+  function drawBanner() {
+    if (!banner) return;
+    var t = banner.life;
+    var alpha = Math.min(1, t * 2.5);            // fade out at the end
+    var scale = 1 + Math.max(0, (1.6 - t)) * 0.05;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(W / 2, H * 0.32);
+    ctx.scale(scale, scale);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#22d3ee';
+    ctx.font = '900 44px Tahoma, Arial, sans-serif';
+    ctx.fillText(banner.text, 0, 0);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'start';
   }
 
   function drawSea() {
@@ -338,11 +443,26 @@
   /* ---- effects (visual only) ------------------------------------------ */
 
   function spawnEffects(events) {
+    events.hits.forEach(function (hit) {
+      var x = worldX(hit.x);
+      var y = laneY(hit.lane);
+      for (var i = 0; i < 4; i++) {
+        var a = Math.random() * Math.PI * 2;
+        particles.push({
+          x: x, y: y,
+          vx: Math.cos(a) * 60, vy: Math.sin(a) * 60,
+          life: 0.25, max: 0.25, size: 1.5 + Math.random() * 1.5, color: '#fff7cc',
+        });
+      }
+    });
+    if (events.hits.length) Sound.play('hit');
+
     events.kills.forEach(function (kill) {
       var x = worldX(kill.x);
       var y = laneY(kill.lane);
-      var color = kill.kind === 'boss' ? '#f97316' : '#fde68a';
-      var count = kill.kind === 'boss' ? 26 : 12;
+      var boss = kill.kind === 'boss';
+      var color = boss ? '#f97316' : '#fde68a';
+      var count = boss ? 26 : 12;
       for (var i = 0; i < count; i++) {
         var ang = Math.random() * Math.PI * 2;
         var spd = 40 + Math.random() * 140;
@@ -353,9 +473,15 @@
         });
       }
       floats.push({ x: x, y: y - 18, vy: -42, life: 1.0, text: '+' + kill.reward });
+      Sound.play(boss ? 'boss' : 'kill');
+      if (boss) setShake(10);
     });
+
     events.leaks.forEach(function (leak) {
       damageFlash = 1;
+      setShake(7);
+      Sound.play('damage');
+      vibrate(35);
       var y = laneY(leak.lane);
       for (var i = 0; i < 8; i++) {
         particles.push({
@@ -369,6 +495,7 @@
 
   function updateEffects(dt) {
     damageFlash = Math.max(0, damageFlash - dt * 2);
+    shakeMag = Math.max(0, shakeMag - dt * 40);
     for (var i = particles.length - 1; i >= 0; i--) {
       var p = particles[i];
       p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 160 * dt; p.life -= dt;
@@ -379,6 +506,11 @@
       f.y += f.vy * dt; f.life -= dt;
       if (f.life <= 0) floats.splice(j, 1);
     }
+    for (var m = muzzles.length - 1; m >= 0; m--) {
+      muzzles[m].life -= dt;
+      if (muzzles[m].life <= 0) muzzles.splice(m, 1);
+    }
+    if (banner) { banner.life -= dt; if (banner.life <= 0) banner = null; }
   }
 
   function drawParticles() {
@@ -480,7 +612,8 @@
       renderedPhase = phase;
       if (phase === 'menu') renderMenu();
       if (phase === 'prep') renderPrep();
-      if (phase === 'result') renderResult();
+      if (phase === 'battle') banner = { text: 'الموجة ' + game.wave, life: 1.6 };
+      if (phase === 'result') { renderResult(); Sound.play(game.lastWin ? 'win' : 'lose'); }
     }
   }
 
@@ -518,12 +651,13 @@
 
     body.querySelectorAll('.buy').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        if (game.buyUpgrade(parseInt(btn.dataset.room, 10))) renderPrep();
+        if (game.buyUpgrade(parseInt(btn.dataset.room, 10))) {
+          Sound.play('upgrade');
+          renderPrep();
+        }
       });
     });
-    document.getElementById('prep-start').addEventListener('click', function () {
-      game.startWave();
-    });
+    document.getElementById('prep-start').addEventListener('click', startWave);
   }
 
   function renderResult() {
@@ -557,5 +691,19 @@
     } catch (err) {
       return null; // private mode / disabled storage — game still runs
     }
+  }
+
+  function vibrate(ms) {
+    try { if (navigator.vibrate) navigator.vibrate(ms); } catch (err) {}
+  }
+
+  function loadMuted() {
+    try { return window.localStorage.getItem('seatycoon.muted') === '1'; }
+    catch (err) { return false; }
+  }
+
+  function saveMuted(v) {
+    try { window.localStorage.setItem('seatycoon.muted', v ? '1' : '0'); }
+    catch (err) {}
   }
 })();
