@@ -1,0 +1,217 @@
+/* Sea Tycoon Defense - styles
+ * Mobile-first, RTL Arabic UI. The playfield is a single <canvas>; menus,
+ * prep and results are HTML overlays for crisp text and easy tap targets. */
+
+:root {
+  --bg-0: #020817;
+  --bg-1: #06233d;
+  --panel: #0b2b45;
+  --panel-2: #071b2e;
+  --accent: #22d3ee;
+  --accent-dim: #22d3ee66;
+  --gold: #facc15;
+  --gold-btn: #b45309;
+  --good: #22c55e;
+  --bad: #ef4444;
+  --text: #ffffff;
+  --muted: #a8bdcf;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-0);
+  color: var(--text);
+  font-family: Tahoma, Arial, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* ---- main app shell --------------------------------------------------- */
+
+.app {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: linear-gradient(var(--bg-1), var(--bg-0));
+}
+
+.top {
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.chip {
+  background: #071b2ecc;
+  border: 1px solid var(--accent-dim);
+  border-radius: 14px;
+  padding: 8px;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.chip b { color: var(--gold); }
+.chip.hp b { color: var(--good); }
+
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--accent-dim);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.stage { min-height: 0; position: relative; }
+.stage canvas { width: 100%; height: 100%; display: block; }
+
+.bottom {
+  padding: 8px;
+  display: grid;
+  gap: 7px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+.row { display: grid; gap: 6px; }
+.lanes { grid-template-columns: repeat(5, 1fr); }
+.tools { grid-template-columns: repeat(4, 1fr); }
+
+.btn {
+  height: 46px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--accent-dim);
+  font-weight: 900;
+  transition: transform .05s ease, filter .1s ease;
+}
+.btn:active { transform: scale(.95); filter: brightness(1.2); }
+.btn.gold { background: var(--gold-btn); }
+
+/* ability buttons carry a cooldown sweep overlay */
+.ability { position: relative; overflow: hidden; }
+.ability .ab-name { position: relative; z-index: 2; display: block; font-size: 13px; }
+.ability .ab-hint { position: relative; z-index: 2; display: block; font-size: 9px; opacity: .8; font-weight: 400; }
+.ability .ab-cd {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: rgba(2, 8, 23, .72);
+  height: 0%;
+  z-index: 1;
+  pointer-events: none;
+}
+.ability .ab-timer {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  font-size: 18px;
+  font-weight: 900;
+  color: #fff;
+}
+.ability.cooling .ab-timer { display: flex; }
+.ability.cooling { filter: saturate(.5); }
+
+/* ---- fullscreen overlays (menu / prep / result / pause) --------------- */
+
+.screen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  padding: 20px;
+  background: radial-gradient(circle at 70% 0, #0ea5e955, transparent 38%), #020817ee;
+  z-index: 10;
+}
+.center { place-items: center; }
+.hide { display: none !important; }
+
+.panel-wrap { width: 100%; max-width: 560px; }
+
+.title {
+  font-size: 46px;
+  line-height: .9;
+  font-weight: 900;
+  color: var(--accent);
+}
+.subtitle { color: var(--muted); margin: 10px 0 4px; }
+.best { color: var(--gold); font-weight: 900; margin-top: 6px; }
+
+.modes { display: grid; gap: 10px; margin-top: 18px; }
+.mode-btn {
+  height: 56px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--accent-dim);
+  font-weight: 900;
+  font-size: 18px;
+}
+.mode-btn small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
+
+/* prep screen */
+.prep-head { display: flex; justify-content: space-between; align-items: baseline; }
+.rooms { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.room {
+  background: var(--panel-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: 16px;
+  padding: 10px;
+}
+.room h3 { margin: 0 0 2px; font-size: 15px; }
+.room .desc { color: var(--muted); font-size: 11px; min-height: 28px; }
+.room .lv { color: var(--good); font-size: 12px; font-weight: 900; }
+.room .buy {
+  width: 100%;
+  margin-top: 6px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--gold-btn);
+  font-weight: 900;
+  font-size: 13px;
+}
+.room .buy:disabled { background: #334155; color: #94a3b8; cursor: default; }
+.room.maxed .buy { background: #155e2f; }
+
+.start {
+  margin-top: 14px;
+  width: 100%;
+  height: 56px;
+  border-radius: 18px;
+  background: #0891b2;
+  font-weight: 900;
+  font-size: 20px;
+}
+
+/* result screen */
+.result-card { text-align: center; }
+.result-title { font-size: 40px; font-weight: 900; }
+.result-title.win { color: var(--good); }
+.result-title.lose { color: var(--bad); }
+.result-stats { margin: 14px 0; font-size: 18px; line-height: 1.7; }
+.result-stats b { color: var(--gold); }
+
+/* pause */
+.pause-card { text-align: center; }
+.pause-card .title { font-size: 36px; }
+
+@media (min-width: 700px) {
+  .modes { grid-template-columns: repeat(3, 1fr); }
+  .rooms { grid-template-columns: repeat(4, 1fr); }
+}

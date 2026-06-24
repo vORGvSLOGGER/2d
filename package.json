@@ -1,0 +1,9 @@
+{
+  "name": "sea-tycoon-defense",
+  "version": "1.0.0",
+  "description": "Lane-based naval defense game (static web build).",
+  "private": true,
+  "scripts": {
+    "test": "node tests/game.test.js"
+  }
+}
