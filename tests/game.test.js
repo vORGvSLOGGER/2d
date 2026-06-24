@@ -204,6 +204,82 @@ test('best wave is persisted via storage', function () {
   assert.strictEqual(g2.best, 1, 'best wave reloads from storage');
 });
 
+test('enemy variety unlocks as waves progress', function () {
+  var g = new Game();
+  assert.deepStrictEqual(g.availableKinds(1), ['fish'], 'wave 1 is fish only');
+  var w2 = g.availableKinds(2);
+  assert.ok(w2.indexOf('raft') >= 0 && w2.indexOf('sub') < 0, 'rafts join at wave 2, subs not yet');
+  assert.ok(g.availableKinds(4).indexOf('sub') >= 0, 'submarines join at wave 4');
+});
+
+test('combo multiplier scales by tier and is capped', function () {
+  var g = new Game();
+  g.combo = 0;
+  assert.strictEqual(g.comboMultiplier(), 1, 'no combo = no bonus');
+  g.combo = CONFIG.comboStep;
+  assert.ok(Math.abs(g.comboMultiplier() - (1 + CONFIG.comboTierBonus)) < 1e-9, 'one tier');
+  g.combo = 100000;
+  assert.ok(Math.abs(g.comboMultiplier() - (1 + CONFIG.comboMaxBonus)) < 1e-9, 'capped');
+});
+
+test('a kill raises the combo; a leak resets it', function () {
+  var g = new Game();
+  g.startRun('normal');
+  g.startWave();
+  g.spawnLeft = 5; // keep the wave from ending mid-test
+  g.combo = CONFIG.comboStep; // tier 1 -> x(1+bonus)
+  g.enemies = [{ x: 0.10, lane: 0, hp: 10, maxHp: 100, speed: 0, reward: 100, kind: 'fish', submerged: false, diveTimer: 0 }];
+  g.shots = [{ x: 0.099, lane: 0, damage: 50, speed: 1.3 }];
+  var goldBefore = g.gold;
+  var ev = g.update(1 / 60);
+  assert.strictEqual(ev.kills.length, 1, 'enemy killed');
+  assert.strictEqual(g.combo, CONFIG.comboStep + 1, 'combo incremented on kill');
+  var expected = Math.round(100 * g.stats().goldBonus * (1 + CONFIG.comboTierBonus));
+  assert.strictEqual(g.gold - goldBefore, expected, 'reward scaled by the combo multiplier');
+
+  // now let one leak through and confirm the combo resets
+  g.enemies = [{ x: 0, lane: 0, hp: 10, maxHp: 10, speed: 0.1, reward: 5, kind: 'fish', submerged: false, diveTimer: 0 }];
+  g.update(1 / 60);
+  assert.strictEqual(g.combo, 0, 'a leak resets the combo');
+});
+
+test('submerged submarines are untargetable until they surface', function () {
+  var g = new Game();
+  g.startRun('normal');
+  g.startWave();
+  g.spawnLeft = 5;
+  var sub = { x: 0.5, lane: 0, hp: 100, maxHp: 100, speed: 0, reward: 10, kind: 'sub', submerged: true, diveTimer: CONFIG.subSubmerged };
+  g.enemies = [sub];
+  g.shots = [{ x: 0.49, lane: 0, damage: 50, speed: 1.3 }];
+  g.update(1 / 60);
+  assert.strictEqual(sub.hp, 100, 'shots pass over a submerged sub');
+
+  sub.diveTimer = 0.0001; // force it to surface
+  g.shots = [];
+  g.update(1 / 60);
+  assert.strictEqual(sub.submerged, false, 'sub surfaces when its dive timer elapses');
+  g.shots = [{ x: 0.49, lane: 0, damage: 50, speed: 1.3 }];
+  g.update(1 / 60);
+  assert.ok(sub.hp < 100, 'a surfaced sub takes damage');
+});
+
+test('career stats accumulate and persist across runs', function () {
+  var store = memStorage();
+  var g = new Game(store);
+  assert.deepStrictEqual(g.career, { kills: 0, gold: 0, runs: 0 });
+  g.startRun('normal');
+  assert.strictEqual(g.career.runs, 1, 'starting a run is counted');
+  g.startWave();
+  g.kills = 3;
+  g.earned = 50;
+  g._endWave(true);
+  assert.strictEqual(g.career.kills, 3, 'kills banked into career');
+  assert.ok(g.career.gold >= 50, 'earned gold banked into career');
+  var reloaded = new Game(store);
+  assert.strictEqual(reloaded.career.runs, 1, 'career reloads from storage');
+  assert.strictEqual(reloaded.career.kills, 3);
+});
+
 test('balance: a no-upgrade player clears waves 1-3, and waves get harder', function () {
   var g = new Game();
   g.startRun('normal');

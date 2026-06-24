@@ -43,6 +43,25 @@ var CONFIG = {
   freezeTime: 3,
   repairFraction: 0.25,
 
+  // Submarines periodically dive: while submerged they cannot be hit (shots
+  // pass over them), so the player must time shots for when they surface.
+  subSurfaced: 2.2,
+  subSubmerged: 1.3,
+
+  // Combo: consecutive kills without letting an enemy through raise a gold
+  // multiplier. Any leak resets it — a clean-play risk/reward system.
+  comboStep: 5,           // kills per multiplier tier
+  comboTierBonus: 0.25,   // +25% gold per tier
+  comboMaxBonus: 1.0,     // capped at +100% (x2 gold)
+
+  // Enemy type profiles. Multipliers apply to the per-wave base stats, and
+  // minWave gates when a type starts appearing (a gentle difficulty curve).
+  enemyTypes: {
+    fish: { hpMul: 0.8, speedMul: 1.25, rewardMul: 0.9, minWave: 1 },
+    raft: { hpMul: 1.7, speedMul: 0.65, rewardMul: 1.5, minWave: 2 },
+    sub:  { hpMul: 1.1, speedMul: 1.0,  rewardMul: 1.3, minWave: 4, dive: true },
+  },
+
   // Game modes.
   modes: {
     normal:  { label: 'عادي',     enemySpeed: 1.0, reward: 1.0, spawn: 1.0 },
@@ -81,6 +100,8 @@ var Game = (function () {
     // Optional persistence backend (localStorage in the browser). May be null.
     this.storage = storage || null;
     this.best = this._loadBest();
+    this.career = this._loadCareer(); // lifetime stats across runs
+    this.combo = 0;
     this.toMenu();
   }
 
@@ -109,6 +130,8 @@ var Game = (function () {
     this.wave = 0;
     this.gold = CONFIG.startGold;
     this.levels = new Array(ROOMS.length).fill(0);
+    this.career.runs++;
+    this._saveCareer();
     this.phase = 'prep';
   };
 
@@ -157,10 +180,26 @@ var Game = (function () {
     this.cooldowns = { q: 0, w: 0, e: 0, r: 0 };
     this.overdrive = 0;
     this.freeze = 0;
+    this.combo = 0;
     this.spawnLeft = 6 + this.wave * 2 + (this.wave % 3 === 0 ? 1 : 0);
     this.spawnTimer = 0.4;
     this._clearBattle();
     this.phase = 'battle';
+  };
+
+  // Gold multiplier from the current kill combo (1.0 = no bonus).
+  Game.prototype.comboMultiplier = function () {
+    var tier = Math.floor(this.combo / CONFIG.comboStep);
+    return 1 + Math.min(CONFIG.comboMaxBonus, tier * CONFIG.comboTierBonus);
+  };
+
+  // Enemy kinds that can appear on a given wave (difficulty gating).
+  Game.prototype.availableKinds = function (wave) {
+    var out = [];
+    for (var key in CONFIG.enemyTypes) {
+      if (wave >= CONFIG.enemyTypes[key].minWave) out.push(key);
+    }
+    return out;
   };
 
   /* After a won wave, return to prep for the next one (progress preserved). */
@@ -214,28 +253,36 @@ var Game = (function () {
 
   Game.prototype._spawnEnemy = function () {
     var mode = CONFIG.modes[this.mode];
-    var lane = randInt(CONFIG.lanes);
     var boss = this.wave % 3 === 0 && this.spawnLeft === 1;
-    var hp, speed, reward, kind;
+    var e = {
+      x: CONFIG.spawnX,
+      lane: randInt(CONFIG.lanes),
+      kind: 'fish',
+      submerged: false,
+      diveTimer: 0,
+    };
 
     if (boss) {
-      kind = 'boss';
-      hp = 900 + this.wave * 35;
-      speed = 0.045;
-      reward = 150;
+      e.kind = 'boss';
+      e.hp = e.maxHp = 900 + this.wave * 35;
+      e.speed = 0.045;
+      e.reward = 150;
     } else {
-      var kinds = ['fish', 'raft', 'sub'];
-      kind = kinds[randInt(kinds.length)];
-      hp = 80 + this.wave * 8;
-      speed = 0.060 + Math.random() * 0.035;
-      reward = 14 + this.wave * 2;
+      var kinds = this.availableKinds(this.wave);
+      e.kind = kinds[randInt(kinds.length)];
+      var t = CONFIG.enemyTypes[e.kind];
+      var baseHp = 80 + this.wave * 8;
+      e.hp = e.maxHp = Math.round(baseHp * t.hpMul);
+      e.speed = (0.060 + Math.random() * 0.035) * t.speedMul;
+      e.reward = Math.round((14 + this.wave * 2) * t.rewardMul);
+      if (t.dive) e.diveTimer = CONFIG.subSurfaced;
     }
 
-    speed *= mode.enemySpeed;
-    if (mode.ramp) speed *= 1 + this.wave * 0.01;
-    reward = Math.round(reward * mode.reward);
+    e.speed *= mode.enemySpeed;
+    if (mode.ramp) e.speed *= 1 + this.wave * 0.01;
+    e.reward = Math.round(e.reward * mode.reward);
 
-    this.enemies.push({ x: CONFIG.spawnX, lane: lane, hp: hp, maxHp: hp, speed: speed, reward: reward, kind: kind });
+    this.enemies.push(e);
     this.spawnLeft--;
   };
 
@@ -269,9 +316,17 @@ var Game = (function () {
     var enemyFactor = this.freeze > 0 ? 0 : 1;
     for (var i = this.enemies.length - 1; i >= 0; i--) {
       var e = this.enemies[i];
+      if (e.kind === 'sub') {
+        e.diveTimer -= dt;
+        if (e.diveTimer <= 0) {
+          e.submerged = !e.submerged;
+          e.diveTimer = e.submerged ? CONFIG.subSubmerged : CONFIG.subSurfaced;
+        }
+      }
       e.x -= e.speed * enemyFactor * dt;
       if (e.x <= CONFIG.enemyReachX) {
         this.hp -= CONFIG.leakDamage * (1 - s.armor);
+        this.combo = 0; // a leak breaks the kill combo
         events.leaks.push({ lane: e.lane });
         this.enemies.splice(i, 1);
       }
@@ -284,15 +339,17 @@ var Game = (function () {
       if (shot.x > CONFIG.shotDespawnX) { this.shots.splice(j, 1); continue; }
       for (var m = this.enemies.length - 1; m >= 0; m--) {
         var en = this.enemies[m];
-        if (en.lane === shot.lane && Math.abs(en.x - shot.x) < CONFIG.hitRadius) {
+        // submerged submarines are untargetable — shots pass over them
+        if (en.lane === shot.lane && !en.submerged && Math.abs(en.x - shot.x) < CONFIG.hitRadius) {
           en.hp -= shot.damage;
           this.shots.splice(j, 1);
           if (en.hp <= 0) {
-            var reward = Math.round(en.reward * s.goldBonus);
+            this.combo++;
+            var reward = Math.round(en.reward * s.goldBonus * this.comboMultiplier());
             this.gold += reward;
             this.earned += reward;
             this.kills++;
-            events.kills.push({ x: en.x, lane: en.lane, reward: reward, kind: en.kind });
+            events.kills.push({ x: en.x, lane: en.lane, reward: reward, kind: en.kind, combo: this.combo });
             this.enemies.splice(m, 1);
           } else {
             events.hits.push({ x: en.x, lane: en.lane });
@@ -316,7 +373,10 @@ var Game = (function () {
       this.gold += bonus;
       this.earned += bonus;
     }
+    this.career.kills += this.kills;
+    this.career.gold += this.earned;
     this._saveBest();
+    this._saveCareer();
     this.phase = 'result';
   };
 
@@ -337,6 +397,25 @@ var Game = (function () {
         if (this.storage) this.storage.setItem('seatycoon.best', String(this.best));
       } catch (err) { /* storage unavailable — ignore */ }
     }
+  };
+
+  Game.prototype._loadCareer = function () {
+    var def = { kills: 0, gold: 0, runs: 0 };
+    try {
+      if (!this.storage) return def;
+      var raw = this.storage.getItem('seatycoon.career');
+      if (!raw) return def;
+      var o = JSON.parse(raw);
+      return { kills: o.kills || 0, gold: o.gold || 0, runs: o.runs || 0 };
+    } catch (err) {
+      return def;
+    }
+  };
+
+  Game.prototype._saveCareer = function () {
+    try {
+      if (this.storage) this.storage.setItem('seatycoon.career', JSON.stringify(this.career));
+    } catch (err) { /* storage unavailable — ignore */ }
   };
 
   return Game;

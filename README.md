@@ -10,7 +10,12 @@ A lane-based naval defense game. Build your ship in the prep phase, then survive
 
 ## How to play
 
-- **5 lanes.** Enemies (fish / rafts / submarines / bosses) sail from right to left toward your ship.
+- **5 lanes.** Enemies sail from right to left toward your ship. Types differ:
+  **fish** are fast and weak, **rafts** are slow and tanky, **submarines**
+  periodically dive and can't be hit while submerged (wait for them to surface),
+  and **bosses** appear every third wave. Tougher types unlock as you progress.
+- **Combo:** consecutive kills without letting an enemy through raise a gold
+  multiplier (up to ×2). A single leak resets it — clean play pays off.
 - **Fire** by tapping a lane button `1`–`5`, or tapping that lane on the playfield. Each shot costs **energy**, which refills over time.
 - **Abilities** (each on its own cooldown):
   - موجة `Q` — fire every lane at once
@@ -72,3 +77,6 @@ bugs. This version is a clean rewrite that fixes them:
   wave-intro banner, a low-HP warning, and haptics on mobile.
 - Split the minified blob into readable, maintainable files with tests
   (model unit tests + a Playwright-driven end-to-end run).
+- Added depth: mechanically distinct enemy types (incl. diving submarines),
+  difficulty-gated wave composition, a kill-combo gold multiplier, and
+  persistent career stats (runs / kills / total gold) shown on the menu.

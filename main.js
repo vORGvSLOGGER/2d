@@ -272,8 +272,24 @@
     if (game.phase === 'battle') {
       drawDamageFlash();
       drawLowHpWarning();
+      drawCombo();
       drawBanner();
     }
+  }
+
+  function drawCombo() {
+    var mult = game.comboMultiplier();
+    if (mult <= 1) return;
+    var pulse = 1 + Math.sin(clock * 8) * 0.04;
+    ctx.save();
+    ctx.translate(W / 2, 96);
+    ctx.scale(pulse, pulse);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#facc15';
+    ctx.font = '900 22px Tahoma, Arial, sans-serif';
+    ctx.fillText('كومبو ×' + mult.toFixed(2).replace(/\.?0+$/, '') + '  (' + game.combo + ')', 0, 0);
+    ctx.restore();
+    ctx.textAlign = 'start';
   }
 
   function drawMuzzles() {
@@ -392,6 +408,7 @@
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
+    if (e.submerged) ctx.globalAlpha = 0.35; // diving: untargetable
 
     if (e.kind === 'sub') {
       ctx.fillStyle = '#94a3b8';
@@ -420,7 +437,19 @@
       ctx.fillStyle = '#00131f';
       circle(-15, -4, 3);
     }
+    ctx.globalAlpha = 1;
     ctx.restore();
+
+    if (e.submerged) {
+      // dashed ring marks an untargetable, submerged submarine
+      ctx.strokeStyle = 'rgba(148,163,184,.6)';
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.arc(x, y, 30, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      return; // no health bar while it can't be hit
+    }
 
     // health bar
     var hbw = 60 * scale;
@@ -621,7 +650,16 @@
 
   function renderMenu() {
     var el = document.getElementById('menu-best');
-    el.textContent = game.best > 0 ? ('أفضل موجة: ' + game.best) : '';
+    var c = game.career;
+    if (game.best > 0 || c.runs > 0) {
+      el.innerHTML =
+        'أفضل موجة: <b>' + game.best + '</b>' +
+        '<br><span style="font-weight:400;color:var(--muted);font-size:13px">' +
+        'محاولات: ' + c.runs + ' • سفن مدمرة: ' + c.kills + ' • إجمالي الذهب: ' + c.gold +
+        '</span>';
+    } else {
+      el.textContent = '';
+    }
   }
 
   function renderPrep() {
