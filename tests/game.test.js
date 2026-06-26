@@ -265,6 +265,59 @@ test('medals are earned per wave and persist; meta upgrades apply', function () 
   assert.ok(g3.meta.levels[0] >= 1 && g3.meta.levels[3] >= 1, 'meta levels persist');
 });
 
+test('war mode: ships hold at a line and fire missiles', function () {
+  var g = new Game();
+  g.startRun('endless');           // "endless" key is now War mode
+  g.startWave();
+  g.spawnLeft = 0;                 // stop the spawner so the test is deterministic
+  g.enemies = [{ x: 0.9, lane: 0, hp: 999, maxHp: 999, speed: 0.5, reward: 5, kind: 'fish',
+                 submerged: false, diveTimer: 0, hold: 0.5, stationed: false, fireTimer: 0.05 }];
+  g.missiles = [];
+  for (var i = 0; i < 120; i++) g.update(1 / 60);
+  assert.ok(g.enemies[0].stationed, 'ship stops at its hold line');
+  assert.ok(Math.abs(g.enemies[0].x - 0.5) < 1e-6, 'parked exactly at the hold line');
+  assert.ok(g.missiles.length >= 1, 'a stationed ship fires missiles');
+});
+
+test('war mode: interceptor downs missiles, cannon ignores them', function () {
+  var g = new Game();
+  g.startRun('endless');
+  g.startWave();
+  g.spawnLeft = 0;
+  g.enemies = [{ x: 0.5, lane: 0, hp: 999, maxHp: 999, reward: 5, kind: 'fish',
+                 submerged: false, diveTimer: 0, hold: 0.5, stationed: true, fireTimer: 999 }];
+
+  // interceptor destroys a missile without touching the ship
+  g.missiles = [{ x: 0.4, lane: 0, speed: 0, damage: 16 }];
+  g.setWeapon('intercept');
+  var hp0 = g.hp;
+  g.fire(0);
+  for (var k = 0; k < 60; k++) g.update(1 / 60);
+  assert.strictEqual(g.missiles.length, 0, 'interceptor shot downs the missile');
+  assert.strictEqual(g.hp, hp0, 'no ship damage when a missile is intercepted');
+
+  // cannon shots pass over missiles (anti-ship only)
+  g.setWeapon('cannon');
+  g.missiles = [{ x: 0.45, lane: 1, speed: 0, damage: 16 }];
+  g.fire(1);
+  for (var z = 0; z < 60; z++) g.update(1 / 60);
+  assert.strictEqual(g.missiles.length, 1, 'cannon ignores missiles');
+});
+
+test('war mode: an unintercepted missile damages the ship', function () {
+  var g = new Game();
+  g.startRun('endless');
+  g.startWave();
+  g.spawnLeft = 0;
+  // keep one parked ship alive so the wave doesn't end before the missile lands
+  g.enemies = [{ x: 0.5, lane: 0, hp: 999, maxHp: 999, kind: 'fish',
+                 submerged: false, hold: 0.5, stationed: true, fireTimer: 999 }];
+  g.missiles = [{ x: 0.08, lane: 2, speed: 0.5, damage: 16 }];
+  var hp0 = g.hp;
+  for (var i = 0; i < 60; i++) g.update(1 / 60);
+  assert.ok(g.hp < hp0, 'a missile that reaches the ship deals damage');
+});
+
 test('treasury meta raises starting gold', function () {
   var store = memStorage();
   var g = new Game(store);

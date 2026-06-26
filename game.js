@@ -62,11 +62,20 @@ var CONFIG = {
     sub:  { hpMul: 1.1, speedMul: 1.0,  rewardMul: 1.3, minWave: 4, dive: true },
   },
 
-  // Game modes.
+  // "War" mode: enemy ships stop at a line and bombard the player with
+  // missiles. The player intercepts missiles with one weapon and destroys the
+  // ships with another.
+  war: {
+    holdX: 0.46, holdJitter: 0.18,
+    missileSpeed: 0.42, missileDamage: 16,
+    fireInterval: 2.6, fireJitter: 1.4,
+  },
+
+  // Game modes. (the former "endless" mode is now "War"; key kept for saves)
   modes: {
-    normal:  { label: 'عادي',     enemySpeed: 1.0, reward: 1.0, spawn: 1.0 },
-    fast:    { label: 'سريع',     enemySpeed: 1.5, reward: 2.0, spawn: 0.8 },
-    endless: { label: 'لا نهاية', enemySpeed: 1.0, reward: 1.2, spawn: 1.0, ramp: true },
+    normal:  { label: 'عادي', enemySpeed: 1.0, reward: 1.0, spawn: 1.0 },
+    fast:    { label: 'سريع', enemySpeed: 1.5, reward: 2.0, spawn: 0.8 },
+    endless: { label: 'الحرب', enemySpeed: 1.0, reward: 1.2, spawn: 1.0, ramp: true, war: true },
   },
 };
 
@@ -134,6 +143,7 @@ var Game = (function () {
   Game.prototype._clearBattle = function () {
     this.enemies = [];
     this.shots = [];
+    this.missiles = [];
     this.kills = 0;
     this.earned = 0;
   };
@@ -223,6 +233,7 @@ var Game = (function () {
     this.overdrive = 0;
     this.freeze = 0;
     this.combo = 0;
+    this.weapon = 'cannon';
     this.spawnLeft = 6 + this.wave * 2 + (this.wave % 3 === 0 ? 1 : 0);
     this.spawnTimer = 0.4;
     this._clearBattle();
@@ -266,8 +277,14 @@ var Game = (function () {
       lane: lane,
       damage: this.stats().damage * (boosted ? 1.25 : 1),
       speed: CONFIG.shotSpeed * (boosted ? CONFIG.shotSpeedBoost : 1),
+      kind: this.weapon || 'cannon',
     });
     return true;
+  };
+
+  // War mode: switch between the anti-ship cannon and the anti-missile interceptor.
+  Game.prototype.setWeapon = function (w) {
+    if (w === 'cannon' || w === 'intercept') this.weapon = w;
   };
 
   Game.prototype.abilityMaxCooldown = function (key) {
@@ -324,6 +341,12 @@ var Game = (function () {
     if (mode.ramp) e.speed *= 1 + this.wave * 0.01;
     e.reward = Math.round(e.reward * mode.reward);
 
+    if (mode.war) {
+      e.hold = CONFIG.war.holdX + Math.random() * CONFIG.war.holdJitter;
+      e.stationed = false;
+      e.fireTimer = CONFIG.war.fireInterval + Math.random() * CONFIG.war.fireJitter;
+    }
+
     this.enemies.push(e);
     this.spawnLeft--;
   };
@@ -354,8 +377,9 @@ var Game = (function () {
       this.spawnTimer = Math.max(0.42, 1.1 - this.wave * 0.02) * CONFIG.modes[this.mode].spawn;
     }
 
-    // enemy motion + leaks
+    // enemy motion (war ships hold at a line and fire missiles; others leak)
     var enemyFactor = this.freeze > 0 ? 0 : 1;
+    var warMode = !!CONFIG.modes[this.mode].war;
     for (var i = this.enemies.length - 1; i >= 0; i--) {
       var e = this.enemies[i];
       if (e.kind === 'sub') {
@@ -364,6 +388,19 @@ var Game = (function () {
           e.submerged = !e.submerged;
           e.diveTimer = e.submerged ? CONFIG.subSubmerged : CONFIG.subSurfaced;
         }
+      }
+      if (warMode && e.hold != null) {
+        if (!e.stationed) {
+          e.x -= e.speed * enemyFactor * dt;
+          if (e.x <= e.hold) { e.x = e.hold; e.stationed = true; }
+        } else if (enemyFactor > 0) {
+          e.fireTimer -= dt;
+          if (e.fireTimer <= 0) {
+            e.fireTimer = CONFIG.war.fireInterval + Math.random() * CONFIG.war.fireJitter;
+            this.missiles.push({ x: e.x - 0.02, lane: e.lane, speed: CONFIG.war.missileSpeed, damage: CONFIG.war.missileDamage });
+          }
+        }
+        continue; // war ships never leak — they hold position and bombard
       }
       e.x -= e.speed * enemyFactor * dt;
       if (e.x <= CONFIG.enemyReachX) {
@@ -374,11 +411,35 @@ var Game = (function () {
       }
     }
 
-    // shot motion + collisions
+    // war-mode missiles travel toward the ship and explode on contact
+    for (var mi = this.missiles.length - 1; mi >= 0; mi--) {
+      var ms = this.missiles[mi];
+      ms.x -= ms.speed * enemyFactor * dt;
+      if (ms.x <= CONFIG.enemyReachX) {
+        this.hp -= ms.damage * (1 - s.armor);
+        this.combo = 0;
+        events.leaks.push({ lane: ms.lane });
+        this.missiles.splice(mi, 1);
+      }
+    }
+
+    // shot motion + collisions (cannon downs ships; interceptor downs missiles)
     for (var j = this.shots.length - 1; j >= 0; j--) {
       var shot = this.shots[j];
       shot.x += shot.speed * dt;
       if (shot.x > CONFIG.shotDespawnX) { this.shots.splice(j, 1); continue; }
+      if (shot.kind === 'intercept') {
+        for (var mm = this.missiles.length - 1; mm >= 0; mm--) {
+          var mis = this.missiles[mm];
+          if (mis.lane === shot.lane && Math.abs(mis.x - shot.x) < CONFIG.hitRadius) {
+            this.missiles.splice(mm, 1);
+            this.shots.splice(j, 1);
+            events.hits.push({ x: shot.x, lane: shot.lane, intercept: true });
+            break;
+          }
+        }
+        continue;
+      }
       for (var m = this.enemies.length - 1; m >= 0; m--) {
         var en = this.enemies[m];
         // submerged submarines are untargetable — shots pass over them

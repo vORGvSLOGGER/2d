@@ -28,6 +28,7 @@
   var floats = [];
   var muzzles = [];        // muzzle flashes at the ship when firing
   var smoke = [];          // funnel smoke puffs
+  var explosions = [];     // impact blasts when an enemy/missile hits the ship
   var smokeTimer = 0;
   var shipRecoil = 0;      // 0..1, briefly set when the main gun fires
   var damageFlash = 0;     // red full-screen flash when the ship is hit
@@ -89,6 +90,20 @@
       if (game.phase !== 'battle' || paused) return;
       var rect = canvas.getBoundingClientRect();
       playerFire(laneFromY(ev.clientY - rect.top));
+    });
+
+    // weapon toggle (war mode): cannon <-> missile interceptor
+    document.getElementById('btn-weapon').addEventListener('click', function () {
+      game.setWeapon(game.weapon === 'cannon' ? 'intercept' : 'cannon');
+      Sound.play('ability');
+      refreshWeaponBtn();
+    });
+
+    // keep the phone/browser "back" button inside the game instead of leaving
+    try { history.pushState({ st: 1 }, ''); } catch (e) {}
+    window.addEventListener('popstate', function () {
+      try { history.pushState({ st: 1 }, ''); } catch (e) {}
+      goBack();
     });
 
     // keyboard support (desktop / testing)
@@ -205,9 +220,36 @@
       if (k >= '1' && k <= '5') playerFire(parseInt(k, 10) - 1);
       if (k === 'q' || k === 'w' || k === 'e' || k === 'r') playerAbility(k);
       if (k === 'p' || k === 'escape') togglePause();
+      if (k === 'x') { game.setWeapon(game.weapon === 'cannon' ? 'intercept' : 'cannon'); refreshWeaponBtn(); }
     } else if (game.phase === 'result') {
       if (k === ' ' || k === 'enter') advanceFromResult();
     }
+  }
+
+  // Route the hardware/browser back button to an in-app step so a stray
+  // "back" pauses or returns to the menu instead of leaving the page.
+  function goBack() {
+    if (game.phase === 'menu') {
+      if (menuView !== 'home') { menuView = 'home'; renderMenu(); }
+      return;
+    }
+    if (game.phase === 'battle') {
+      if (!paused) { togglePause(); return; }   // first back press = pause
+      paused = false; game.toMenu(); return;     // again = quit to menu
+    }
+    game.toMenu(); // prep / result -> menu (the run stays saved)
+  }
+
+  function refreshWeaponBtn() {
+    var btn = document.getElementById('btn-weapon');
+    var war = game.phase === 'battle' && !paused && !!CONFIG.modes[game.mode].war;
+    btn.classList.toggle('hide', !war);
+    if (!war) return;
+    var inter = game.weapon === 'intercept';
+    btn.classList.toggle('intercept', inter);
+    btn.innerHTML = inter
+      ? '🛡️ <b>صدّ الصواريخ</b><small>اضغط للمدفع</small>'
+      : '💥 <b>المدفع — دمّر السفن</b><small>اضغط لصدّ الصواريخ</small>';
   }
 
   function togglePause() {
@@ -274,6 +316,7 @@
       updateHud();
       updateAbilityButtons();
     }
+    refreshWeaponBtn();
 
     requestAnimationFrame(loop);
   }
@@ -301,8 +344,10 @@
     drawSmoke();
     drawMuzzles();
     game.enemies.forEach(drawEnemy);
+    if (game.missiles) game.missiles.forEach(drawMissile);
     game.shots.forEach(drawShot);
     drawParticles();
+    drawExplosions();
     drawFloats();
     if (shaking) ctx.restore();
 
@@ -709,10 +754,10 @@
   function drawShot(s) {
     var x = worldX(s.x);
     var y = laneY(s.lane);
-    // tracer trail (behind the shell, toward the ship on the left)
+    var inter = s.kind === 'intercept';              // anti-missile = cyan
     var trail = ctx.createLinearGradient(x - 24, y, x, y);
-    trail.addColorStop(0, 'rgba(255,209,102,0)');
-    trail.addColorStop(1, 'rgba(255,233,160,0.9)');
+    trail.addColorStop(0, inter ? 'rgba(56,225,255,0)' : 'rgba(255,209,102,0)');
+    trail.addColorStop(1, inter ? 'rgba(160,240,255,0.9)' : 'rgba(255,233,160,0.9)');
     ctx.fillStyle = trail;
     ctx.beginPath();
     ctx.moveTo(x - 24, y - 1.5);
@@ -721,12 +766,44 @@
     ctx.lineTo(x - 24, y + 1.5);
     ctx.closePath();
     ctx.fill();
-    // glowing head
-    ctx.fillStyle = '#fff6d0';
-    ctx.shadowColor = '#ffc63d';
+    ctx.fillStyle = inter ? '#dffaff' : '#fff6d0';
+    ctx.shadowColor = inter ? '#38e1ff' : '#ffc63d';
     ctx.shadowBlur = 12;
     circle(x, y, 4.5);
     ctx.shadowBlur = 0;
+  }
+
+  // war-mode enemy missile: a warhead flying left with a flame trail
+  function drawMissile(m) {
+    var x = worldX(m.x), y = laneY(m.lane);
+    var tr = ctx.createLinearGradient(x, y, x + 22, y);
+    tr.addColorStop(0, 'rgba(255,120,60,0.9)');
+    tr.addColorStop(1, 'rgba(255,120,60,0)');
+    ctx.fillStyle = tr;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 2); ctx.lineTo(x + 22, y - 1); ctx.lineTo(x + 22, y + 1); ctx.lineTo(x, y + 2);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffe0b0';
+    ctx.shadowColor = '#ff5d3a'; ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(x - 7, y); ctx.lineTo(x + 3, y - 3.2); ctx.lineTo(x + 3, y + 3.2);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // expanding shockwave + fireball shown wherever something hits the ship
+  function drawExplosions() {
+    explosions.forEach(function (e) {
+      var f = Math.max(0, e.life / e.maxLife);
+      var r = e.r + (e.max - e.r) * (1 - f);
+      ctx.globalAlpha = f;
+      ctx.strokeStyle = '#ffd9a0';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,140,60,' + (f * 0.6).toFixed(2) + ')';
+      circle(e.x, e.y, r * 0.5);
+    });
+    ctx.globalAlpha = 1;
   }
 
   /* ---- effects (visual only) ------------------------------------------ */
@@ -768,15 +845,21 @@
 
     events.leaks.forEach(function (leak) {
       damageFlash = 1;
-      setShake(7);
+      setShake(9);
       Sound.play('damage');
-      vibrate(35);
+      vibrate(45);
       var y = laneY(leak.lane);
-      for (var i = 0; i < 8; i++) {
+      var x = marginLeft;
+      // a clear impact blast — every mode, so contact reads as an explosion
+      explosions.push({ x: x, y: y, r: 6, max: 36, life: 0.34, maxLife: 0.34 });
+      for (var i = 0; i < 16; i++) {
+        var ang = Math.random() * Math.PI * 2;
+        var spd = 50 + Math.random() * 190;
         particles.push({
-          x: marginLeft, y: y,
-          vx: -(20 + Math.random() * 60), vy: (Math.random() - 0.5) * 120,
-          life: 0.5, max: 0.5, size: 2 + Math.random() * 2, color: '#ef4444',
+          x: x, y: y,
+          vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+          life: 0.5, max: 0.5, size: 1.5 + Math.random() * 2.5,
+          color: Math.random() < 0.5 ? '#ff7a3d' : '#ffd45c',
         });
       }
     });
@@ -804,6 +887,10 @@
     damageFlash = Math.max(0, damageFlash - dt * 2);
     shakeMag = Math.max(0, shakeMag - dt * 40);
     shipRecoil = Math.max(0, shipRecoil - dt * 6);
+    for (var ex = explosions.length - 1; ex >= 0; ex--) {
+      explosions[ex].life -= dt;
+      if (explosions[ex].life <= 0) explosions.splice(ex, 1);
+    }
     for (var s = smoke.length - 1; s >= 0; s--) {
       var pf = smoke[s];
       pf.x += pf.vx * dt; pf.y += pf.vy * dt; pf.r += 9 * dt; pf.life -= dt;
@@ -1016,6 +1103,7 @@
     var body = document.getElementById('prep-body');
     var html = '' +
       '<div class="prep-head">' +
+        '<button class="back-btn" id="prep-back">‹ القائمة</button>' +
         '<div class="title">التجهيز</div>' +
         '<div class="wave-badge">الموجة ' + (game.wave + 1) + '</div>' +
       '</div>' +
@@ -1051,6 +1139,7 @@
         }
       });
     });
+    document.getElementById('prep-back').addEventListener('click', function () { game.toMenu(); });
     document.getElementById('prep-start').addEventListener('click', startWave);
   }
 

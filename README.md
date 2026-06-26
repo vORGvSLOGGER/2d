@@ -23,7 +23,7 @@ A lane-based naval defense game. Build your ship in the prep phase, then survive
   - سرعة `E` — overdrive: faster, stronger shots
   - تجميد `R` — freeze all enemies briefly
 - Clear a wave to earn gold, then spend it in **التجهيز (prep)** on 8 upgradeable rooms. Survive as long as you can; your best wave is saved.
-- **Modes:** عادي (normal), سريع (faster + double gold), لا نهاية (endless, escalating).
+- **Modes:** عادي (normal), سريع (faster + double gold), الحرب (War — ships halt and bombard you with missiles you must shoot down).
 
 Desktop keys: `1`–`5` fire, `Q/W/E/R` abilities, `P`/`Esc` pause, `Enter` start/continue.
 
@@ -95,3 +95,11 @@ bugs. This version is a clean rewrite that fixes them:
   run stronger — so maxing out the rooms is no longer a dead end.
 - **Menu hub.** A redesigned home screen: Continue / New game, mode select, the
   permanent meta-shop, and a lifetime-stats strip.
+- **In-app back everywhere + back-button guard.** Prep/menus have explicit back
+  buttons, and the phone/browser back button navigates within the game (pause /
+  return to menu) instead of accidentally leaving the page.
+- **Consistent impact explosions.** Enemies — and War-mode missiles — detonate
+  with a shockwave + fireball burst on contact, identically in every mode.
+- **"War" mode** (the former endless mode): enemy ships stop mid-field and fire
+  missiles; toggle between the **cannon** (destroy ships) and the **interceptor**
+  (shoot the missiles down).

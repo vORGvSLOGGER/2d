@@ -462,3 +462,22 @@ button { font: inherit; border: 0; color: var(--text); cursor: pointer; }
   box-shadow: 0 0 6px #34d39977;
 }
 .lvnum { font-size: 10.5px; color: var(--muted); font-weight: 700; margin-bottom: 7px; }
+
+/* war-mode weapon toggle (cannon <-> missile interceptor) */
+.weapon-toggle {
+  width: 100%; min-height: 46px; border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.15;
+  background: linear-gradient(180deg, #ffd45c, var(--gold-deep));
+  color: #2a1800; font-weight: 900; font-size: 15px;
+  border: 1px solid #ffce6b66; box-shadow: 0 6px 16px -6px #000, inset 0 1px 0 #fff6;
+  transition: transform .06s ease, filter .12s ease;
+}
+.weapon-toggle:active { transform: scale(.98); filter: brightness(1.05); }
+.weapon-toggle small { font-size: 9.5px; font-weight: 600; opacity: .8; }
+.weapon-toggle.intercept {
+  background: linear-gradient(180deg, #56d6ff, #1f3f9e); color: #04122a;
+  border-color: #9fe9ff88; box-shadow: 0 6px 16px -6px #000, inset 0 1px 0 #fff8;
+}
+
+/* prep header lays out: back | title | wave badge */
+.prep-head .back-btn { font-size: 14px; padding: 7px 12px; }
