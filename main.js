@@ -37,6 +37,7 @@
   var paused = false;
   var muted = false;
   var renderedPhase = null; // so overlays rebuild only on phase change
+  var menuView = 'home';    // home | modes | shop (menu sub-view)
 
   // background scenery (regenerated on resize)
   var stars = [];
@@ -60,7 +61,6 @@
   function init() {
     buildLaneButtons();
     buildAbilityButtons();
-    buildMenuModes();
 
     document.getElementById('btn-pause').addEventListener('click', togglePause);
     document.getElementById('btn-resume').addEventListener('click', togglePause);
@@ -129,25 +129,12 @@
     });
   }
 
-  function buildMenuModes() {
-    var wrap = document.getElementById('menu-modes');
-    var info = {
-      normal:  { hint: 'اللعب الكامل', ico: '⚓' },
-      fast:    { hint: 'أسرع + ذهب مضاعف', ico: '⚡' },
-      endless: { hint: 'تحدٍ متصاعد بلا نهاية', ico: '♾️' },
-    };
-    Object.keys(CONFIG.modes).forEach(function (key) {
-      var meta = info[key] || { hint: '', ico: '🚢' };
-      var b = document.createElement('button');
-      b.className = 'mode-btn';
-      b.innerHTML =
-        '<span class="m-ico">' + meta.ico + '</span>' +
-        '<span class="m-txt">' + CONFIG.modes[key].label +
-          '<small>' + meta.hint + '</small></span>';
-      b.addEventListener('click', function () { game.startRun(key); });
-      wrap.appendChild(b);
-    });
-  }
+  var MODE_INFO = {
+    normal:  { hint: 'اللعب الكامل', ico: '⚓' },
+    fast:    { hint: 'أسرع + ذهب مضاعف', ico: '⚡' },
+    endless: { hint: 'تحدٍ متصاعد بلا نهاية', ico: '♾️' },
+  };
+  var META_ICONS = ['⛴️', '💣', '💰', '🎓'];
 
   /* ===================================================================== */
   /* layout                                                                 */
@@ -942,7 +929,7 @@
     // rebuild overlay contents only when the phase actually changes
     if (phase !== renderedPhase) {
       renderedPhase = phase;
-      if (phase === 'menu') renderMenu();
+      if (phase === 'menu') { menuView = 'home'; renderMenu(); }
       if (phase === 'prep') renderPrep();
       if (phase === 'battle') banner = { text: 'الموجة ' + game.wave, life: 1.6 };
       if (phase === 'result') { renderResult(); Sound.play(game.lastWin ? 'win' : 'lose'); }
@@ -952,16 +939,77 @@
   function show(el, visible) { el.classList.toggle('hide', !visible); }
 
   function renderMenu() {
-    var el = document.getElementById('menu-best');
-    var c = game.career;
-    if (game.best > 0 || c.runs > 0) {
-      el.innerHTML =
-        '🏆 أفضل موجة: <b>' + game.best + '</b>' +
-        '<span class="career">محاولات: <i>' + c.runs + '</i> • ' +
-        'سفن مدمرة: <i>' + c.kills + '</i> • إجمالي الذهب: <i>' + c.gold + '</i></span>';
+    var body = document.getElementById('menu-body');
+    if (menuView === 'modes') renderMenuModes(body);
+    else if (menuView === 'shop') renderMenuShop(body);
+    else renderMenuHome(body);
+  }
+
+  function renderMenuHome(body) {
+    var c = game.career, m = game.meta, saved = game.savedInfo();
+    var html = '<p class="subtitle">ابنِ سفينتك، ثم صُدّ موجات البحر. رقِّ الغرف بين الموجات لتصمد أطول.</p>';
+    html += '<div class="menu-actions">';
+    if (saved) {
+      html += '<button class="cta cta-primary" id="btn-continue">▶ <span>أكمل</span>' +
+              '<small>الموجة ' + saved.wave + ' — ' + CONFIG.modes[saved.mode].label + '</small></button>';
+      html += '<button class="cta cta-second" id="btn-newgame">＋ لعبة جديدة</button>';
     } else {
-      el.textContent = '';
+      html += '<button class="cta cta-primary" id="btn-newgame">▶ <span>ابدأ اللعب</span></button>';
     }
+    html += '<button class="cta cta-shop" id="btn-shop"><span>🎖️ الترقيات الدائمة</span><b>' + m.medals + '</b></button>';
+    html += '</div>';
+    html += '<div class="stat-strip">' +
+      '<div><span>🏆</span><b>' + game.best + '</b><small>أفضل موجة</small></div>' +
+      '<div><span>⚔️</span><b>' + c.runs + '</b><small>محاولات</small></div>' +
+      '<div><span>💥</span><b>' + c.kills + '</b><small>سفن مدمرة</small></div>' +
+      '<div><span>🎖️</span><b>' + m.medals + '</b><small>أوسمة</small></div>' +
+    '</div>';
+    body.innerHTML = html;
+    var cont = document.getElementById('btn-continue');
+    if (cont) cont.addEventListener('click', function () { if (game.continueSavedRun()) Sound.play('start'); });
+    document.getElementById('btn-newgame').addEventListener('click', function () { menuView = 'modes'; renderMenu(); });
+    document.getElementById('btn-shop').addEventListener('click', function () { menuView = 'shop'; renderMenu(); });
+  }
+
+  function renderMenuModes(body) {
+    var html = '<div class="view-head"><button class="back-btn" id="btn-back">‹ رجوع</button>' +
+               '<h2>اختر الطور</h2></div><div class="modes" id="menu-modes">';
+    Object.keys(CONFIG.modes).forEach(function (key) {
+      var info = MODE_INFO[key] || { hint: '', ico: '🚢' };
+      html += '<button class="mode-btn" data-mode="' + key + '">' +
+        '<span class="m-ico">' + info.ico + '</span>' +
+        '<span class="m-txt">' + CONFIG.modes[key].label + '<small>' + info.hint + '</small></span></button>';
+    });
+    html += '</div>';
+    body.innerHTML = html;
+    document.getElementById('btn-back').addEventListener('click', function () { menuView = 'home'; renderMenu(); });
+    body.querySelectorAll('.mode-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { Sound.play('start'); game.startRun(btn.dataset.mode); });
+    });
+  }
+
+  function renderMenuShop(body) {
+    var m = game.meta;
+    var html = '<div class="view-head"><button class="back-btn" id="btn-back">‹ رجوع</button>' +
+               '<h2>الترقيات الدائمة</h2></div>';
+    html += '<div class="medal-bal">🎖️ أوسمتك: <b>' + m.medals + '</b></div>';
+    html += '<p class="shop-hint">تكسب الأوسمة كل موجة وتبقى معك للأبد — تقوّي كل جولة جديدة.</p>';
+    html += '<div class="meta-list">';
+    META.forEach(function (r, i) {
+      var cost = game.metaCost(i), afford = game.canBuyMeta(i);
+      html += '<div class="meta-item"><div class="r-ico">' + (META_ICONS[i] || '⭐') + '</div>' +
+        '<div class="meta-txt"><h3>' + r.name + ' <em>Lv ' + m.levels[i] + '</em></h3>' +
+        '<div class="desc">' + r.desc + '</div></div>' +
+        '<button class="meta-buy" data-i="' + i + '"' + (afford ? '' : ' disabled') + '>🎖️ ' + cost + '</button></div>';
+    });
+    html += '</div>';
+    body.innerHTML = html;
+    document.getElementById('btn-back').addEventListener('click', function () { menuView = 'home'; renderMenu(); });
+    body.querySelectorAll('.meta-buy').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (game.buyMeta(parseInt(btn.dataset.i, 10))) { Sound.play('upgrade'); renderMenu(); }
+      });
+    });
   }
 
   function renderPrep() {
@@ -973,16 +1021,16 @@
       '</div>' +
       '<div class="gold-line">🪙 الذهب: <b>' + game.gold + '</b></div>' +
       '<div class="rooms">';
+    var cap = game.roomMaxLevel();
     for (var i = 0; i < ROOMS.length; i++) {
       var r = ROOMS[i];
-      var maxed = game.levels[i] >= CONFIG.maxLevel;
+      var maxed = game.levels[i] >= cap;
       var afford = game.canUpgrade(i);
       var label = maxed ? 'أقصى مستوى' : ('🪙 ' + game.upgradeCost(i));
-      var pips = '<div class="pips">';
-      for (var p = 0; p < CONFIG.maxLevel; p++) {
-        pips += '<i class="' + (p < game.levels[i] ? 'on' : '') + '"></i>';
-      }
-      pips += '</div>';
+      var pct = Math.round((game.levels[i] / cap) * 100);
+      var pips =
+        '<div class="lvbar"><div class="lvbar-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="lvnum">المستوى ' + game.levels[i] + ' / ' + cap + '</div>';
       html +=
         '<div class="room' + (maxed ? ' maxed' : '') + '">' +
           '<div class="r-top"><div class="r-ico">' + (ROOM_ICONS[i] || '🔧') + '</div>' +
@@ -1019,6 +1067,7 @@
           '<div class="rs"><span>💥 أعداء مُدمَّرة</span><b>' + game.kills + '</b></div>' +
           '<div class="rs"><span>🪙 ذهب مكتسب</span><b>' + game.earned + '</b></div>' +
           '<div class="rs"><span>🏆 أفضل موجة</span><b>' + game.best + '</b></div>' +
+          '<div class="rs"><span>🎖️ أوسمة هذه الجولة</span><b>' + (game.medalsRun || 0) + '</b></div>' +
         '</div>' +
         '<button class="start" id="result-go">' + (win ? '⚓ متابعة' : '🏠 القائمة') + '</button>' +
       '</div>';

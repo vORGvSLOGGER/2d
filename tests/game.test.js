@@ -24,7 +24,8 @@ function memStorage() {
   var data = {};
   return {
     getItem: function (k) { return k in data ? data[k] : null; },
-    setItem: function (k, v) { data[k] = v; },
+    setItem: function (k, v) { data[k] = String(v); },
+    removeItem: function (k) { delete data[k]; },
   };
 }
 
@@ -202,6 +203,74 @@ test('best wave is persisted via storage', function () {
   assert.strictEqual(store.getItem('seatycoon.best'), '1');
   var g2 = new Game(store);
   assert.strictEqual(g2.best, 1, 'best wave reloads from storage');
+});
+
+test('an active run is saved and resumes at the start of its current wave', function () {
+  var store = memStorage();
+  var g = new Game(store);
+  g.startRun('normal');
+  g.buyUpgrade(1);            // cannons -> level 1
+  g.startWave();             // wave 1
+  g.enemies = []; g.spawnLeft = 0;
+  g.update(1 / 60);          // clears wave 1 -> snapshot saved
+  assert.ok(g.hasSave(), 'a run snapshot exists');
+  assert.deepStrictEqual(g.savedInfo(), { mode: 'normal', wave: 2 }, 'will resume into wave 2');
+  var goldAtPrep = g.gold, lvl = g.levels[1];
+
+  var reloaded = new Game(store);  // simulate closing + reopening the browser
+  assert.ok(reloaded.hasSave());
+  assert.strictEqual(reloaded.career.runs, 1, 'attempts are NOT reset on reload');
+  assert.ok(reloaded.continueSavedRun());
+  assert.strictEqual(reloaded.phase, 'prep');
+  assert.strictEqual(reloaded.wave, 1, 'resumes at the current (unfinished) wave');
+  assert.strictEqual(reloaded.gold, goldAtPrep, 'gold preserved');
+  assert.strictEqual(reloaded.levels[1], lvl, 'upgrades preserved');
+});
+
+test('losing clears the saved run', function () {
+  var store = memStorage();
+  var g = new Game(store);
+  g.startRun('normal');
+  g.startWave();
+  assert.ok(g.hasSave());
+  g.hp = 0;
+  g.update(1 / 60);          // hp<=0 -> _endWave(false)
+  assert.strictEqual(g.phase, 'result');
+  assert.ok(!g.lastWin);
+  assert.ok(!g.hasSave(), 'a lost run no longer offers continue');
+});
+
+test('medals are earned per wave and persist; meta upgrades apply', function () {
+  var store = memStorage();
+  var g = new Game(store);
+  g.startRun('normal');
+  function clearWave() { g.startWave(); g.enemies = []; g.spawnLeft = 0; g.update(1 / 60); }
+  clearWave();               // wave 1 -> +1
+  assert.strictEqual(g.meta.medals, 1, 'one medal per wave');
+  g.continueAfterWin(); clearWave();   // wave 2 -> +1
+  g.continueAfterWin(); clearWave();   // wave 3 (boss) -> +1 +2
+  assert.strictEqual(g.meta.medals, 5, 'boss wave grants the +2 bonus');
+
+  var g2 = new Game(store);
+  assert.strictEqual(g2.meta.medals, 5, 'medals persist across reload');
+
+  g2.startRun('normal');
+  var s0 = g2.stats().maxHp;
+  g2.meta.medals = 99;
+  assert.ok(g2.buyMeta(0), 'buy fleet');               // +25 base HP
+  assert.strictEqual(g2.stats().maxHp, s0 + 25, 'fleet raises base HP');
+  assert.ok(g2.buyMeta(3), 'buy training');            // +1 room cap
+  assert.strictEqual(g2.roomMaxLevel(), CONFIG.maxLevel + 1, 'training raises the room cap');
+  var g3 = new Game(store);
+  assert.ok(g3.meta.levels[0] >= 1 && g3.meta.levels[3] >= 1, 'meta levels persist');
+});
+
+test('treasury meta raises starting gold', function () {
+  var store = memStorage();
+  var g = new Game(store);
+  g.meta.levels[2] = 2;      // treasury x2 -> +70 start gold
+  g.startRun('normal');
+  assert.strictEqual(g.gold, CONFIG.startGold + 70);
 });
 
 test('enemy variety unlocks as waves progress', function () {

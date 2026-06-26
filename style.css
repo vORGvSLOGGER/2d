@@ -366,3 +366,99 @@ button { font: inherit; border: 0; color: var(--text); cursor: pointer; }
   .modes { grid-template-columns: repeat(3, 1fr); }
   .rooms { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* ---- menu hub (home / modes / shop sub-views) ------------------------- */
+
+.menu-wrap { text-align: start; }
+
+.menu-actions { display: grid; gap: 11px; margin-top: 18px; }
+
+.cta {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 60px; padding: 12px 18px;
+  border-radius: 18px; font-weight: 900; font-size: 20px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow), inset 0 1px 0 #ffffff1f;
+  transition: transform .07s ease, filter .12s ease;
+}
+.cta:active { transform: scale(.98); filter: brightness(1.06); }
+.cta small { display: block; font-size: 12px; font-weight: 500; opacity: .85; margin-top: 2px; }
+.cta-primary {
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  color: #04122a; flex-direction: column; align-items: flex-start; gap: 0;
+  box-shadow: 0 14px 34px -10px var(--accent), inset 0 1px 0 #fff8;
+  animation: cta-pulse 2.6s ease-in-out infinite;
+}
+.cta-primary span { font-size: 22px; }
+@keyframes cta-pulse { 50% { box-shadow: 0 16px 44px -6px var(--accent), inset 0 1px 0 #fff8; } }
+.cta-second {
+  background: linear-gradient(180deg, var(--glass-2), rgba(8,14,34,.5));
+  color: var(--text); justify-content: center; font-size: 17px;
+}
+.cta-shop {
+  background: linear-gradient(180deg, #2b2350, #1a1330);
+  border-color: #ffce6b3d; justify-content: space-between; font-size: 16px;
+}
+.cta-shop b {
+  color: var(--gold); background: #0d1736; border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px 12px; font-size: 15px;
+}
+
+.stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
+.stat-strip > div {
+  background: var(--glass); border: 1px solid var(--line); border-radius: 14px;
+  padding: 9px 4px; text-align: center; display: grid; gap: 1px;
+}
+.stat-strip span { font-size: 16px; }
+.stat-strip b { font-size: 16px; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat-strip small { font-size: 9.5px; color: var(--muted); }
+
+.view-head { display: flex; align-items: center; gap: 12px; margin: 6px 0 14px; }
+.view-head h2 { margin: 0; font-size: 24px; font-weight: 900; }
+.back-btn {
+  background: var(--glass); border: 1px solid var(--line); border-radius: 12px;
+  padding: 8px 14px; font-weight: 800; font-size: 15px; color: var(--text);
+}
+.back-btn:active { transform: scale(.95); }
+
+.medal-bal {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--glass); border: 1px solid var(--line); border-radius: 999px;
+  padding: 8px 16px; font-weight: 800; font-size: 16px;
+}
+.medal-bal b { color: var(--gold); font-size: 18px; }
+.shop-hint { color: var(--muted); font-size: 12.5px; margin: 8px 0 12px; }
+
+.meta-list { display: grid; gap: 9px; }
+.meta-item {
+  display: flex; align-items: center; gap: 11px;
+  background: linear-gradient(180deg, var(--glass-2), rgba(8,14,34,.55));
+  border: 1px solid var(--line); border-radius: 15px; padding: 11px 12px;
+  box-shadow: var(--shadow), inset 0 1px 0 #ffffff12;
+}
+.meta-item .r-ico {
+  font-size: 20px; width: 40px; height: 40px; flex: none;
+  display: grid; place-items: center; border-radius: 11px;
+  background: #0d1736; border: 1px solid var(--line);
+}
+.meta-txt { flex: 1; min-width: 0; }
+.meta-txt h3 { margin: 0; font-size: 15px; font-weight: 800; }
+.meta-txt h3 em { color: var(--accent); font-style: normal; font-size: 12px; font-weight: 700; }
+.meta-txt .desc { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.meta-buy {
+  flex: none; min-width: 64px; height: 40px; border-radius: 12px;
+  background: linear-gradient(180deg, #ffd45c, var(--gold-deep));
+  color: #2a1800; font-weight: 900; font-size: 14px;
+  box-shadow: 0 6px 16px -6px var(--gold-deep), inset 0 1px 0 #fff6;
+}
+.meta-buy:active { transform: scale(.95); }
+.meta-buy:disabled { background: #2a3559; color: #6b7da6; box-shadow: none; }
+
+/* prep room level bar (replaces the fixed 5-pip row; handles caps of 10+) */
+.lvbar { height: 6px; border-radius: 4px; background: #ffffff14; overflow: hidden; margin-bottom: 4px; }
+.lvbar-fill {
+  height: 100%; border-radius: 4px;
+  background: linear-gradient(90deg, var(--good), #6ef0b0);
+  box-shadow: 0 0 6px #34d39977;
+}
+.lvnum { font-size: 10.5px; color: var(--muted); font-weight: 700; margin-bottom: 7px; }

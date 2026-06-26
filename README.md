@@ -87,3 +87,11 @@ bugs. This version is a clean rewrite that fixes them:
   glowing tracer fire, a game-style HUD (HP/energy bars + gold/wave pills), and
   frosted-glass menus with icons, level pips, and entrance animations
   (Tajawal webfont with a local fallback).
+- **Save & resume.** The active run (wave, gold, upgrades, mode) is persisted to
+  localStorage, so closing the browser/phone and reopening offers a **Continue**
+  at the start of your current wave — progress and attempts are no longer lost.
+- **Endless progression.** Room upgrades now go to level 10, and a permanent
+  **medals** meta-shop (earned every wave, never reset) keeps making each new
+  run stronger — so maxing out the rooms is no longer a dead end.
+- **Menu hub.** A redesigned home screen: Continue / New game, mode select, the
+  permanent meta-shop, and a lifetime-stats strip.

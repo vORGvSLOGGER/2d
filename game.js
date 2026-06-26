@@ -19,7 +19,7 @@ var LANES = 5;
 var CONFIG = {
   lanes: LANES,
   startGold: 180,
-  maxLevel: 5,
+  maxLevel: 10, // base per-room cap; meta "training" raises it further
 
   // Motion (world units per second).
   shotSpeed: 1.30,
@@ -93,6 +93,18 @@ var ABILITIES = [
   { key: 'r', name: 'تجميد',  hint: 'إيقاف الأعداء' },
 ];
 
+/*
+ * Permanent meta-progression. "Medals" are earned every run and never reset;
+ * spending them makes every future run stronger, so progress continues even
+ * after a player has maxed out the in-run rooms.
+ */
+var META = [
+  { key: 'fleet',    name: 'الأسطول',       desc: '+25 نقطة حياة أساسية' },
+  { key: 'guns',     name: 'مدافع موروثة',  desc: '+3 قوة طلقة أساسية' },
+  { key: 'treasury', name: 'الخزينة',       desc: '+35 ذهب البداية' },
+  { key: 'training', name: 'تدريب الطاقم',  desc: '+1 لسقف ترقية الغرف' },
+];
+
 function randInt(n) { return Math.floor(Math.random() * n); }
 
 var Game = (function () {
@@ -101,7 +113,9 @@ var Game = (function () {
     this.storage = storage || null;
     this.best = this._loadBest();
     this.career = this._loadCareer(); // lifetime stats across runs
+    this.meta = this._loadMeta();     // permanent cross-run upgrades
     this.combo = 0;
+    this.medalsRun = 0;               // medals earned in the current run (display)
     this.toMenu();
   }
 
@@ -128,10 +142,12 @@ var Game = (function () {
   Game.prototype.startRun = function (mode) {
     this.mode = CONFIG.modes[mode] ? mode : 'normal';
     this.wave = 0;
-    this.gold = CONFIG.startGold;
+    this.gold = CONFIG.startGold + this.meta.levels[2] * 35; // treasury bonus
     this.levels = new Array(ROOMS.length).fill(0);
+    this.medalsRun = 0;
     this.career.runs++;
     this._saveCareer();
+    this._saveRun();
     this.phase = 'prep';
   };
 
@@ -140,8 +156,8 @@ var Game = (function () {
   Game.prototype.stats = function () {
     var L = this.levels;
     return {
-      maxHp: 240 + L[0] * 45,
-      damage: 26 + L[1] * 9,
+      maxHp: 240 + L[0] * 45 + this.meta.levels[0] * 25,
+      damage: 26 + L[1] * 9 + this.meta.levels[1] * 3,
       fireDelay: Math.max(0.16, 0.55 - L[2] * 0.07),
       maxEnergy: 24 + L[3] * 5,
       armor: Math.min(0.45, L[4] * 0.05),
@@ -151,18 +167,44 @@ var Game = (function () {
     };
   };
 
+  // Per-room cap, raised permanently by the meta "training" upgrade.
+  Game.prototype.roomMaxLevel = function () {
+    return CONFIG.maxLevel + this.meta.levels[3];
+  };
+
   Game.prototype.upgradeCost = function (i) {
     return Math.floor(80 * Math.pow(1.6, this.levels[i]) + i * 18);
   };
 
   Game.prototype.canUpgrade = function (i) {
-    return this.levels[i] < CONFIG.maxLevel && this.gold >= this.upgradeCost(i);
+    return this.levels[i] < this.roomMaxLevel() && this.gold >= this.upgradeCost(i);
   };
 
   Game.prototype.buyUpgrade = function (i) {
     if (!this.canUpgrade(i)) return false;
     this.gold -= this.upgradeCost(i);
     this.levels[i]++;
+    this._saveRun();
+    return true;
+  };
+
+  /* ----------------------------------------------------- meta-progression */
+
+  Game.prototype.metaCost = function (i) {
+    var base = [4, 4, 3, 6][i];
+    var step = [3, 3, 2, 5][i];
+    return base + step * this.meta.levels[i];
+  };
+
+  Game.prototype.canBuyMeta = function (i) {
+    return i >= 0 && i < META.length && this.meta.medals >= this.metaCost(i);
+  };
+
+  Game.prototype.buyMeta = function (i) {
+    if (!this.canBuyMeta(i)) return false;
+    this.meta.medals -= this.metaCost(i);
+    this.meta.levels[i]++;
+    this._saveMeta();
     return true;
   };
 
@@ -204,7 +246,7 @@ var Game = (function () {
 
   /* After a won wave, return to prep for the next one (progress preserved). */
   Game.prototype.continueAfterWin = function () {
-    if (this.phase === 'result' && this.lastWin) this.phase = 'prep';
+    if (this.phase === 'result' && this.lastWin) { this.phase = 'prep'; this._saveRun(); }
   };
 
   /* --------------------------------------------------------- battle actions */
@@ -372,6 +414,14 @@ var Game = (function () {
       var bonus = Math.round((40 + this.wave * 18) * this.stats().goldBonus);
       this.gold += bonus;
       this.earned += bonus;
+      // medals: +1 per wave cleared, +2 extra on boss waves; banked immediately
+      var medals = 1 + (this.wave % 3 === 0 ? 2 : 0);
+      this.meta.medals += medals;
+      this.medalsRun += medals;
+      this._saveMeta();
+      this._saveRun();   // snapshot post-win state so resume lands at next prep
+    } else {
+      this.clearSave();  // the run is over
     }
     this.career.kills += this.kills;
     this.career.gold += this.earned;
@@ -418,10 +468,77 @@ var Game = (function () {
     } catch (err) { /* storage unavailable — ignore */ }
   };
 
+  /* ---- active-run snapshot (resume across browser sessions) ---- */
+
+  Game.prototype._saveRun = function () {
+    try {
+      if (!this.storage) return;
+      var snap = { v: 1, mode: this.mode, wave: this.wave, gold: this.gold, levels: this.levels.slice() };
+      this.storage.setItem('seatycoon.run', JSON.stringify(snap));
+    } catch (err) { /* ignore */ }
+  };
+
+  Game.prototype._loadRun = function () {
+    try {
+      if (!this.storage) return null;
+      var raw = this.storage.getItem('seatycoon.run');
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      if (!o || o.v !== 1 || !CONFIG.modes[o.mode]) return null;
+      if (!Array.isArray(o.levels) || o.levels.length !== ROOMS.length) return null;
+      return o;
+    } catch (err) { return null; }
+  };
+
+  Game.prototype.hasSave = function () { return !!this._loadRun(); };
+
+  Game.prototype.savedInfo = function () {
+    var o = this._loadRun();
+    return o ? { mode: o.mode, wave: o.wave + 1 } : null; // the next wave to play
+  };
+
+  Game.prototype.clearSave = function () {
+    try { if (this.storage) this.storage.removeItem('seatycoon.run'); } catch (err) { /* ignore */ }
+  };
+
+  // Resume a saved run at the start of its current (unfinished) wave.
+  Game.prototype.continueSavedRun = function () {
+    var o = this._loadRun();
+    if (!o) return false;
+    this.mode = o.mode;
+    this.wave = o.wave;
+    this.gold = o.gold;
+    this.levels = o.levels.slice();
+    this.medalsRun = 0;
+    this.lastWin = false;
+    this._clearBattle();
+    this.phase = 'prep';
+    return true;
+  };
+
+  /* ---- permanent meta upgrades ---- */
+
+  Game.prototype._loadMeta = function () {
+    var def = { v: 1, medals: 0, levels: new Array(META.length).fill(0) };
+    try {
+      if (!this.storage) return def;
+      var raw = this.storage.getItem('seatycoon.meta');
+      if (!raw) return def;
+      var o = JSON.parse(raw);
+      var levels = Array.isArray(o.levels) ? o.levels.slice(0, META.length) : [];
+      while (levels.length < META.length) levels.push(0);
+      return { v: 1, medals: o.medals || 0, levels: levels.map(function (n) { return n || 0; }) };
+    } catch (err) { return def; }
+  };
+
+  Game.prototype._saveMeta = function () {
+    try { if (this.storage) this.storage.setItem('seatycoon.meta', JSON.stringify(this.meta)); } catch (err) { /* ignore */ }
+  };
+
   return Game;
 })();
 
 /* Export for Node-based tests; harmless in the browser (no module global). */
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { Game: Game, CONFIG: CONFIG, ROOMS: ROOMS, ABILITIES: ABILITIES, LANES: LANES };
+  module.exports = { Game: Game, CONFIG: CONFIG, ROOMS: ROOMS, ABILITIES: ABILITIES, META: META, LANES: LANES };
 }
