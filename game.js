@@ -54,13 +54,31 @@ var CONFIG = {
   comboTierBonus: 0.25,   // +25% gold per tier
   comboMaxBonus: 1.0,     // capped at +100% (x2 gold)
 
-  // Enemy type profiles. Multipliers apply to the per-wave base stats, and
-  // minWave gates when a type starts appearing (a gentle difficulty curve).
+  // Lanes above the horizon are "sky" (aircraft); the rest are "sea" (ships).
+  skyLanes: [0, 1],
+  // Normal mode: enemies that reach the ship hold at this line and grind HP.
+  siegeX: 0.085,
+  // Fast mode: contact is a one-shot explosion of contact*burstMul damage.
+  burstMul: 3,
+
+  // Enemy type profiles. category = sea/air; contact = per-second siege damage
+  // (or, x burstMul, the explosion damage); ammo = the munition auto-fired at it.
   enemyTypes: {
-    fish: { hpMul: 0.8, speedMul: 1.25, rewardMul: 0.9, minWave: 1 },
-    raft: { hpMul: 1.7, speedMul: 0.65, rewardMul: 1.5, minWave: 2 },
-    sub:  { hpMul: 1.1, speedMul: 1.0,  rewardMul: 1.3, minWave: 4, dive: true },
+    fish:  { category: 'sea', ammo: 'cannon', hpMul: 0.8, speedMul: 1.25, rewardMul: 0.9, contact: 10, minWave: 1 },
+    raft:  { category: 'sea', ammo: 'cannon', hpMul: 1.7, speedMul: 0.65, rewardMul: 1.5, contact: 22, minWave: 2 },
+    sub:   { category: 'sea', ammo: 'cannon', hpMul: 1.1, speedMul: 1.0,  rewardMul: 1.3, contact: 16, minWave: 4, dive: true },
+    plane: { category: 'air', ammo: 'flak',   hpMul: 0.7, speedMul: 1.7,  rewardMul: 1.1, contact: 14, minWave: 1 },
+    heli:  { category: 'air', ammo: 'rocket', hpMul: 1.0, speedMul: 0.9,  rewardMul: 1.2, contact: 9,  minWave: 2 },
   },
+
+  // Per-wave challenge modifiers (boss waves use their own fixed challenge).
+  challenges: [
+    { id: 'standard', name: 'موجة قياسية' },
+    { id: 'swarm',    name: 'سرب',        countAdd: 4, speedMul: 1.05 },
+    { id: 'airraid',  name: 'غارة جوية',  airBias: 0.7 },
+    { id: 'fasttide', name: 'مدّ سريع',   speedMul: 1.35 },
+    { id: 'armada',   name: 'أسطول',      countAdd: 2, hpMul: 1.2 },
+  ],
 
   // "War" mode: enemy ships stop at a line and bombard the player with
   // missiles. The player intercepts missiles with one weapon and destroys the
@@ -73,8 +91,8 @@ var CONFIG = {
 
   // Game modes. (the former "endless" mode is now "War"; key kept for saves)
   modes: {
-    normal:  { label: 'عادي', enemySpeed: 1.0, reward: 1.0, spawn: 1.0 },
-    fast:    { label: 'سريع', enemySpeed: 1.5, reward: 2.0, spawn: 0.8 },
+    normal:  { label: 'عادي', enemySpeed: 1.0, reward: 1.0, spawn: 1.0, contact: 'siege' },
+    fast:    { label: 'سريع', enemySpeed: 1.5, reward: 2.0, spawn: 0.8, contact: 'burst' },
     endless: { label: 'الحرب', enemySpeed: 1.0, reward: 1.2, spawn: 1.0, ramp: true, war: true },
   },
 };
@@ -234,7 +252,8 @@ var Game = (function () {
     this.freeze = 0;
     this.combo = 0;
     this.weapon = 'cannon';
-    this.spawnLeft = 6 + this.wave * 2 + (this.wave % 3 === 0 ? 1 : 0);
+    this.challenge = this.pickChallenge(this.wave);
+    this.spawnLeft = 6 + this.wave * 2 + (this.wave % 3 === 0 ? 1 : 0) + (this.challenge.countAdd || 0);
     this.spawnTimer = 0.4;
     this._clearBattle();
     this.phase = 'battle';
@@ -247,12 +266,25 @@ var Game = (function () {
   };
 
   // Enemy kinds that can appear on a given wave (difficulty gating).
-  Game.prototype.availableKinds = function (wave) {
+  Game.prototype.availableKinds = function (wave, category) {
     var out = [];
     for (var key in CONFIG.enemyTypes) {
-      if (wave >= CONFIG.enemyTypes[key].minWave) out.push(key);
+      var t = CONFIG.enemyTypes[key];
+      if (wave >= t.minWave && (!category || t.category === category)) out.push(key);
     }
     return out;
+  };
+
+  // Is a lane in the sky band (aircraft) rather than the sea (ships)?
+  Game.prototype.isSkyLane = function (lane) {
+    return CONFIG.skyLanes.indexOf(lane) >= 0;
+  };
+
+  // Deterministic per-wave challenge (stable across resume); bosses are fixed.
+  Game.prototype.pickChallenge = function (wave) {
+    if (wave % 3 === 0) return { id: 'boss', name: 'مواجهة الزعيم' };
+    var pool = CONFIG.challenges;
+    return pool[(wave * 7 + 3) % pool.length];
   };
 
   /* After a won wave, return to prep for the next one (progress preserved). */
@@ -272,14 +304,27 @@ var Game = (function () {
       this.fireTimer = this.stats().fireDelay;
     }
     var boosted = this.overdrive > 0;
+    var warMode = !!CONFIG.modes[this.mode].war;
+    var kind = warMode ? (this.weapon || 'cannon') : this._ammoForLane(lane);
     this.shots.push({
       x: CONFIG.shotSpawnX,
       lane: lane,
       damage: this.stats().damage * (boosted ? 1.25 : 1),
       speed: CONFIG.shotSpeed * (boosted ? CONFIG.shotSpeedBoost : 1),
-      kind: this.weapon || 'cannon',
+      kind: kind,
     });
     return true;
+  };
+
+  // Outside War mode, tapping a lane auto-fires the munition that matches the
+  // frontmost target there (ship -> cannon, plane -> flak, heli -> rocket).
+  Game.prototype._ammoForLane = function (lane) {
+    var best = null;
+    for (var i = 0; i < this.enemies.length; i++) {
+      var e = this.enemies[i];
+      if (e.lane === lane && !e.submerged && (!best || e.x < best.x)) best = e;
+    }
+    return best ? (best.ammo || 'cannon') : 'cannon';
   };
 
   // War mode: switch between the anti-ship cannon and the anti-missile interceptor.
@@ -312,32 +357,44 @@ var Game = (function () {
 
   Game.prototype._spawnEnemy = function () {
     var mode = CONFIG.modes[this.mode];
+    var ch = this.challenge || {};
     var boss = this.wave % 3 === 0 && this.spawnLeft === 1;
-    var e = {
-      x: CONFIG.spawnX,
-      lane: randInt(CONFIG.lanes),
-      kind: 'fish',
-      submerged: false,
-      diveTimer: 0,
-    };
+
+    // pick a lane: bosses are battleships (always sea); the air-raid challenge
+    // biases spawns toward the sky lanes.
+    var lane;
+    if (boss) {
+      var seaLanes = [];
+      for (var li = 0; li < CONFIG.lanes; li++) if (!this.isSkyLane(li)) seaLanes.push(li);
+      lane = seaLanes[randInt(seaLanes.length)];
+    } else {
+      lane = randInt(CONFIG.lanes);
+      if (ch.airBias && Math.random() < ch.airBias) lane = CONFIG.skyLanes[randInt(CONFIG.skyLanes.length)];
+    }
+    var sky = this.isSkyLane(lane);
+
+    var e = { x: CONFIG.spawnX, lane: lane, kind: 'fish', category: sky ? 'air' : 'sea',
+              ammo: 'cannon', contact: 12, submerged: false, diveTimer: 0 };
 
     if (boss) {
-      e.kind = 'boss';
+      e.kind = 'boss'; e.category = 'sea'; e.ammo = 'cannon'; e.contact = 40;
       e.hp = e.maxHp = 900 + this.wave * 35;
       e.speed = 0.045;
       e.reward = 150;
     } else {
-      var kinds = this.availableKinds(this.wave);
+      var kinds = this.availableKinds(this.wave, sky ? 'air' : 'sea');
+      if (!kinds.length) kinds = this.availableKinds(this.wave, 'sea');
       e.kind = kinds[randInt(kinds.length)];
       var t = CONFIG.enemyTypes[e.kind];
+      e.category = t.category; e.ammo = t.ammo; e.contact = t.contact;
       var baseHp = 80 + this.wave * 8;
-      e.hp = e.maxHp = Math.round(baseHp * t.hpMul);
+      e.hp = e.maxHp = Math.round(baseHp * t.hpMul * (ch.hpMul || 1));
       e.speed = (0.060 + Math.random() * 0.035) * t.speedMul;
       e.reward = Math.round((14 + this.wave * 2) * t.rewardMul);
       if (t.dive) e.diveTimer = CONFIG.subSurfaced;
     }
 
-    e.speed *= mode.enemySpeed;
+    e.speed *= mode.enemySpeed * (ch.speedMul || 1);
     if (mode.ramp) e.speed *= 1 + this.wave * 0.01;
     e.reward = Math.round(e.reward * mode.reward);
 
@@ -359,7 +416,7 @@ var Game = (function () {
    * stays free of any rendering concern.
    */
   Game.prototype.update = function (dt) {
-    var events = { kills: [], hits: [], leaks: [] };
+    var events = { kills: [], hits: [], leaks: [], chips: [], fires: [] };
     if (this.phase !== 'battle') return events;
     var s = this.stats();
 
@@ -379,7 +436,8 @@ var Game = (function () {
 
     // enemy motion (war ships hold at a line and fire missiles; others leak)
     var enemyFactor = this.freeze > 0 ? 0 : 1;
-    var warMode = !!CONFIG.modes[this.mode].war;
+    var mode = CONFIG.modes[this.mode];
+    var warMode = !!mode.war;
     for (var i = this.enemies.length - 1; i >= 0; i--) {
       var e = this.enemies[i];
       if (e.kind === 'sub') {
@@ -398,14 +456,25 @@ var Game = (function () {
           if (e.fireTimer <= 0) {
             e.fireTimer = CONFIG.war.fireInterval + Math.random() * CONFIG.war.fireJitter;
             this.missiles.push({ x: e.x - 0.02, lane: e.lane, speed: CONFIG.war.missileSpeed, damage: CONFIG.war.missileDamage });
+            events.fires.push({ lane: e.lane, x: e.x });
           }
         }
         continue; // war ships never leak — they hold position and bombard
       }
       e.x -= e.speed * enemyFactor * dt;
-      if (e.x <= CONFIG.enemyReachX) {
-        this.hp -= CONFIG.leakDamage * (1 - s.armor);
-        this.combo = 0; // a leak breaks the kill combo
+      if (mode.contact === 'siege') {
+        // normal mode: the enemy holds at the ship and grinds HP "bit by bit"
+        if (e.x <= CONFIG.siegeX) {
+          e.x = CONFIG.siegeX;
+          if (!e.sieging) { e.sieging = true; this.combo = 0; }
+          this.hp -= (e.contact || 12) * (1 - s.armor) * dt;
+          e.chipTimer = (e.chipTimer || 0) - dt;
+          if (e.chipTimer <= 0) { e.chipTimer = 0.3; events.chips.push({ lane: e.lane }); }
+        }
+      } else if (e.x <= CONFIG.enemyReachX) {
+        // fast mode: a one-shot explosion on contact
+        this.hp -= (e.contact || 12) * CONFIG.burstMul * (1 - s.armor);
+        this.combo = 0;
         events.leaks.push({ lane: e.lane });
         this.enemies.splice(i, 1);
       }

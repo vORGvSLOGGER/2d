@@ -192,6 +192,7 @@ test('sound module loads and never throws without an AudioContext', function () 
     Sound.play(n); // must be a no-op, not a crash
   });
   Sound.play('does-not-exist');
+  Sound.music('battle'); Sound.music('boss'); Sound.music('stop'); // inert in Node
 });
 
 test('best wave is persisted via storage', function () {
@@ -326,12 +327,14 @@ test('treasury meta raises starting gold', function () {
   assert.strictEqual(g.gold, CONFIG.startGold + 70);
 });
 
-test('enemy variety unlocks as waves progress', function () {
+test('enemy variety unlocks as waves progress (sea + air)', function () {
   var g = new Game();
-  assert.deepStrictEqual(g.availableKinds(1), ['fish'], 'wave 1 is fish only');
-  var w2 = g.availableKinds(2);
+  assert.deepStrictEqual(g.availableKinds(1, 'sea'), ['fish'], 'wave 1 sea is fish only');
+  var w2 = g.availableKinds(2, 'sea');
   assert.ok(w2.indexOf('raft') >= 0 && w2.indexOf('sub') < 0, 'rafts join at wave 2, subs not yet');
-  assert.ok(g.availableKinds(4).indexOf('sub') >= 0, 'submarines join at wave 4');
+  assert.ok(g.availableKinds(4, 'sea').indexOf('sub') >= 0, 'submarines join at wave 4');
+  assert.ok(g.availableKinds(1, 'air').indexOf('plane') >= 0, 'planes from wave 1');
+  assert.ok(g.availableKinds(2, 'air').indexOf('heli') >= 0, 'helicopters from wave 2');
 });
 
 test('combo multiplier scales by tier and is capped', function () {
@@ -400,6 +403,63 @@ test('career stats accumulate and persist across runs', function () {
   var reloaded = new Game(store);
   assert.strictEqual(reloaded.career.runs, 1, 'career reloads from storage');
   assert.strictEqual(reloaded.career.kills, 3);
+});
+
+test('enemies match their lane domain (air in sky, ships at sea)', function () {
+  var g = new Game(); g.startRun('normal'); g.startWave();
+  var air = 0, sea = 0, mismatch = 0;
+  for (var i = 0; i < 200; i++) {
+    g.enemies = []; g.spawnLeft = 50; g._spawnEnemy();
+    var e = g.enemies[0], sky = g.isSkyLane(e.lane);
+    if (e.category === 'air') { air++; if (!sky) mismatch++; }
+    else { sea++; if (sky) mismatch++; }
+  }
+  assert.strictEqual(mismatch, 0, 'no flying ships / swimming planes');
+  assert.ok(air > 0 && sea > 0, 'both air and sea enemies spawn');
+});
+
+test('normal mode: a reached enemy sieges and grinds HP without vanishing', function () {
+  var g = new Game(); g.startRun('normal'); g.startWave();
+  g.spawnLeft = 0;
+  g.enemies = [{ x: 0.2, lane: 3, hp: 999, maxHp: 999, speed: 0.3, kind: 'raft', category: 'sea', ammo: 'cannon', contact: 22, submerged: false }];
+  var hp0 = g.hp;
+  for (var i = 0; i < 60; i++) g.update(1 / 60);
+  assert.strictEqual(g.enemies.length, 1, 'sieging enemy stays on the field');
+  assert.ok(g.enemies[0].sieging, 'enemy is marked sieging');
+  assert.ok(Math.abs(g.enemies[0].x - CONFIG.siegeX) < 1e-6, 'pinned at the siege line');
+  assert.ok(g.hp < hp0 && g.hp > hp0 - 30, 'HP grinds down gradually (not a big burst)');
+});
+
+test('fast mode: a reached enemy explodes once and is removed', function () {
+  var g = new Game(); g.startRun('fast'); g.startWave();
+  g.spawnLeft = 5;
+  g.enemies = [{ x: 0.005, lane: 3, hp: 999, maxHp: 999, speed: 0.3, kind: 'raft', category: 'sea', ammo: 'cannon', contact: 22, submerged: false }];
+  var hp0 = g.hp;
+  var ev = g.update(1 / 60);
+  assert.strictEqual(g.enemies.length, 0, 'enemy removed on contact (explodes)');
+  assert.strictEqual(ev.leaks.length, 1, 'a burst explosion event is emitted');
+  assert.ok(hp0 - g.hp >= 22, 'a burst takes a chunk at once');
+});
+
+test('auto-match: tapping a lane fires the munition matching the target', function () {
+  var g = new Game(); g.startRun('normal'); g.startWave(); g.spawnLeft = 0;
+  function lastKind() { return g.shots[g.shots.length - 1].kind; }
+  g.enemies = [{ x: 0.5, lane: 0, hp: 50, maxHp: 50, category: 'air', ammo: 'flak', kind: 'plane', submerged: false }];
+  g.fire(0); assert.strictEqual(lastKind(), 'flak', 'plane -> flak');
+  g.fireTimer = 0;
+  g.enemies = [{ x: 0.5, lane: 1, hp: 50, maxHp: 50, category: 'air', ammo: 'rocket', kind: 'heli', submerged: false }];
+  g.fire(1); assert.strictEqual(lastKind(), 'rocket', 'heli -> rocket');
+  g.fireTimer = 0;
+  g.enemies = [{ x: 0.5, lane: 3, hp: 50, maxHp: 50, category: 'sea', ammo: 'cannon', kind: 'fish', submerged: false }];
+  g.fire(3); assert.strictEqual(lastKind(), 'cannon', 'ship -> cannon');
+});
+
+test('per-wave challenge is deterministic; boss waves are flagged', function () {
+  var g = new Game();
+  assert.strictEqual(g.pickChallenge(3).id, 'boss');
+  assert.strictEqual(g.pickChallenge(6).id, 'boss');
+  assert.strictEqual(g.pickChallenge(2).id, g.pickChallenge(2).id, 'stable per wave');
+  assert.ok(g.pickChallenge(2).name, 'challenge has a name');
 });
 
 test('balance: a no-upgrade player clears waves 1-3, and waves get harder', function () {

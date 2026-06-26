@@ -9,11 +9,18 @@
   'use strict';
 
   var game = new Game(safeLocalStorage());
+  try { window.__game = game; } catch (e) {} // debug / e2e handle
 
   // canvas
   var canvas = document.getElementById('cv');
   var ctx = canvas.getContext('2d');
   var W = 0, H = 0;
+
+  // player ship sprite (replaces the canvas-drawn warship once loaded)
+  var shipImg = new Image();
+  var shipImgReady = false;
+  shipImg.onload = function () { shipImgReady = true; };
+  shipImg.src = 'assets/player-ship.png';
 
   // overlays / controls
   var screenMenu = document.getElementById('screen-menu');
@@ -39,6 +46,7 @@
   var muted = false;
   var renderedPhase = null; // so overlays rebuild only on phase change
   var menuView = 'home';    // home | modes | shop (menu sub-view)
+  var currentMusic = 'stop'; // 'battle' | 'boss' | 'stop'
 
   // background scenery (regenerated on resize)
   var stars = [];
@@ -79,6 +87,7 @@
     var unlock = function () {
       Sound.init();
       Sound.resume();
+      currentMusic = null; // re-apply music now that audio is unlocked
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
     };
@@ -164,7 +173,7 @@
     canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     marginLeft = Math.max(48, W * 0.12);
-    horizonY = H * 0.28;
+    horizonY = H * 0.33;
     initScenery();
   }
 
@@ -252,6 +261,13 @@
       : '💥 <b>المدفع — دمّر السفن</b><small>اضغط لصدّ الصواريخ</small>';
   }
 
+  // Background music follows the battle state: boss theme on boss waves.
+  function updateMusic() {
+    var want = 'stop';
+    if (game.phase === 'battle' && !paused) want = (game.wave % 3 === 0) ? 'boss' : 'battle';
+    if (want !== currentMusic) { currentMusic = want; Sound.music(want); }
+  }
+
   function togglePause() {
     if (game.phase !== 'battle') return;
     paused = !paused;
@@ -317,6 +333,7 @@
       updateAbilityButtons();
     }
     refreshWeaponBtn();
+    updateMusic();
 
     requestAnimationFrame(loop);
   }
@@ -330,7 +347,8 @@
 
     if (game.phase !== 'battle') {
       // an idle warship bobbing on the open sea behind the menus
-      drawWarship(W * 0.5, horizonY + 74 + Math.sin(clock * 1.4) * 5, 1.45, 0);
+      if (shipImgReady) drawShipSprite(W * 0.5, horizonY + 92 + Math.sin(clock * 1.4) * 5, 240, 0);
+      else drawWarship(W * 0.5, horizonY + 74 + Math.sin(clock * 1.4) * 5, 1.45, 0);
       return;
     }
 
@@ -417,11 +435,16 @@
     ctx.translate(W / 2, H * 0.32);
     ctx.scale(scale, scale);
     ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 12;
     ctx.fillStyle = '#38e1ff';
     ctx.font = '900 44px "Tajawal", Tahoma, sans-serif';
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 12;
     ctx.fillText(banner.text, 0, 0);
+    if (banner.sub) {
+      ctx.fillStyle = '#ffc63d';
+      ctx.font = '800 22px "Tajawal", Tahoma, sans-serif';
+      ctx.fillText('⚔ ' + banner.sub, 0, 34);
+    }
     ctx.shadowBlur = 0;
     ctx.restore();
     ctx.globalAlpha = 1;
@@ -553,10 +576,22 @@
   }
 
   function drawShip() {
+    if (shipImgReady) { drawShipSprite(shipX() + 20, shipY(), 168, shipRecoil); return; }
     ctx.save();
     ctx.translate(shipX(), shipY());
     ctx.rotate(Math.sin(clock * 1.2) * 0.02); // gentle pitch
     drawWarship(0, 0, 1.3, shipRecoil);
+    ctx.restore();
+  }
+
+  // Draw the ship sprite mirrored so its bow faces the enemies (to the right).
+  function drawShipSprite(cx, cy, w, recoil) {
+    var h = w * (shipImg.height / shipImg.width);
+    ctx.save();
+    ctx.translate(cx - (recoil || 0) * 4, cy);
+    ctx.rotate(Math.sin(clock * 1.2) * 0.015);
+    ctx.scale(-1, 1);
+    ctx.drawImage(shipImg, -w / 2, -h / 2, w, h);
     ctx.restore();
   }
 
@@ -645,7 +680,7 @@
     var scale = e.kind === 'boss' ? 1.5 : 1;
 
     // bow wake foam trailing off the stern (enemies move left, so it's on the right)
-    if (!e.submerged) {
+    if (!e.submerged && e.category !== 'air') {
       var bw = 18 * scale;
       ctx.save();
       ctx.globalAlpha = 0.16;
@@ -665,7 +700,9 @@
     ctx.scale(scale, scale);
     if (e.submerged) ctx.globalAlpha = 0.4;
 
-    if (e.kind === 'sub') {
+    if (e.category === 'air') {
+      if (e.kind === 'heli') drawHeli(); else drawPlane();
+    } else if (e.kind === 'sub') {
       drawHullGradient(-32, -8, 64, 17, 9, '#7c8aa0', '#2b3850');
       ctx.fillStyle = '#39465f'; roundRect(-4, -19, 14, 11, 2); ctx.fill();
       ctx.fillStyle = '#222c40'; ctx.fillRect(3, -26, 2.5, 8);   // periscope
@@ -751,25 +788,60 @@
     ctx.fill();
   }
 
+  // enemy jet, nose to the left, with an afterburner flame at the tail
+  function drawPlane() {
+    ctx.fillStyle = '#9fb3cf';
+    ctx.beginPath();
+    ctx.moveTo(-26, 0); ctx.lineTo(8, -4); ctx.lineTo(20, -3); ctx.lineTo(20, 3); ctx.lineTo(8, 4);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#6f86a8';
+    ctx.beginPath(); ctx.moveTo(2, -2); ctx.lineTo(22, -15); ctx.lineTo(11, -2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(2, 2); ctx.lineTo(22, 15); ctx.lineTo(11, 2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(17, -2); ctx.lineTo(26, -11); ctx.lineTo(23, -2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#37506e'; circle(-12, -1, 2.6);
+    var fl = 6 + Math.sin(clock * 30) * 2;
+    ctx.fillStyle = 'rgba(255,150,60,0.9)';
+    ctx.beginPath(); ctx.moveTo(20, -2); ctx.lineTo(20 + fl, 0); ctx.lineTo(20, 2); ctx.closePath(); ctx.fill();
+  }
+
+  // enemy helicopter with a spinning main rotor
+  function drawHeli() {
+    ctx.fillStyle = '#5b6b86';
+    roundRect(-18, -6, 30, 13, 6); ctx.fill();
+    ctx.fillStyle = '#9fd0ff'; circle(-13, -1, 4);
+    ctx.strokeStyle = '#3a465e'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(30, -3); ctx.stroke();
+    ctx.fillStyle = '#2c374e'; ctx.fillRect(28, -7, 2.5, 9);   // tail rotor
+    ctx.strokeStyle = '#2c374e'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-14, 9); ctx.lineTo(6, 9); ctx.stroke(); // skid
+    var rw = 26 * Math.cos(clock * 40);
+    ctx.strokeStyle = 'rgba(220,235,255,0.5)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-4 - rw, -12); ctx.lineTo(-4 + rw, -12); ctx.stroke();
+    ctx.fillStyle = '#2c374e'; ctx.fillRect(-6, -13, 4, 4);
+  }
+
   function drawShot(s) {
-    var x = worldX(s.x);
-    var y = laneY(s.lane);
-    var inter = s.kind === 'intercept';              // anti-missile = cyan
+    var x = worldX(s.x), y = laneY(s.lane), k = s.kind;
+    if (k === 'rocket') {                          // anti-helicopter rocket (red)
+      var tr = ctx.createLinearGradient(x - 22, y, x, y);
+      tr.addColorStop(0, 'rgba(255,120,80,0)'); tr.addColorStop(1, 'rgba(255,170,120,0.9)');
+      ctx.fillStyle = tr; ctx.fillRect(x - 22, y - 1.5, 22, 3);
+      ctx.fillStyle = '#ff6a3d'; ctx.shadowColor = '#ff6a3d'; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.moveTo(x + 6, y); ctx.lineTo(x - 4, y - 3); ctx.lineTo(x - 4, y + 3); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0; return;
+    }
+    var air = (k === 'flak' || k === 'intercept'); // cyan anti-air munitions
     var trail = ctx.createLinearGradient(x - 24, y, x, y);
-    trail.addColorStop(0, inter ? 'rgba(56,225,255,0)' : 'rgba(255,209,102,0)');
-    trail.addColorStop(1, inter ? 'rgba(160,240,255,0.9)' : 'rgba(255,233,160,0.9)');
+    trail.addColorStop(0, air ? 'rgba(56,225,255,0)' : 'rgba(255,209,102,0)');
+    trail.addColorStop(1, air ? 'rgba(160,240,255,0.9)' : 'rgba(255,233,160,0.9)');
     ctx.fillStyle = trail;
     ctx.beginPath();
-    ctx.moveTo(x - 24, y - 1.5);
-    ctx.lineTo(x, y - 3);
-    ctx.lineTo(x, y + 3);
-    ctx.lineTo(x - 24, y + 1.5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = inter ? '#dffaff' : '#fff6d0';
-    ctx.shadowColor = inter ? '#38e1ff' : '#ffc63d';
+    ctx.moveTo(x - 24, y - 1.5); ctx.lineTo(x, y - 3); ctx.lineTo(x, y + 3); ctx.lineTo(x - 24, y + 1.5);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = air ? '#dffaff' : '#fff6d0';
+    ctx.shadowColor = air ? '#38e1ff' : '#ffc63d';
     ctx.shadowBlur = 12;
-    circle(x, y, 4.5);
+    circle(x, y, k === 'flak' ? 3.5 : 4.5);
     ctx.shadowBlur = 0;
   }
 
@@ -863,6 +935,29 @@
         });
       }
     });
+
+    // sieging enemies (normal mode): small ongoing "chip" sparks, not a blast
+    events.chips.forEach(function (c) {
+      damageFlash = Math.min(1, damageFlash + 0.22);
+      setShake(2.5);
+      var cy = laneY(c.lane), cx = marginLeft + 6;
+      for (var i = 0; i < 3; i++) {
+        particles.push({ x: cx, y: cy, vx: -(25 + Math.random() * 45), vy: (Math.random() - 0.5) * 70,
+          life: 0.3, max: 0.3, size: 1.4 + Math.random() * 1.4, color: '#ff9a4d' });
+      }
+    });
+    if (events.chips.length) { Sound.play('hit'); vibrate(8); }
+
+    // war-mode missile launches: a muzzle flash at the firing ship
+    events.fires.forEach(function (fr) {
+      var fx = worldX(fr.x), fy = laneY(fr.lane);
+      for (var i = 0; i < 5; i++) {
+        var a = Math.random() * Math.PI * 2;
+        particles.push({ x: fx, y: fy, vx: Math.cos(a) * 55, vy: Math.sin(a) * 55,
+          life: 0.2, max: 0.2, size: 1.5 + Math.random() * 1.5, color: '#ffd9a0' });
+      }
+    });
+    if (events.fires.length) Sound.play('shoot');
   }
 
   // Ship layout helpers (kept in one place so smoke / muzzle line up with art)
@@ -870,6 +965,7 @@
   function shipY() { return H / 2 + Math.sin(clock * 1.6) * 4; }
 
   function emitSmoke(dt) {
+    if (shipImgReady) return; // the sci-fi sprite has no coal funnel
     smokeTimer -= dt;
     if (smokeTimer > 0) return;
     smokeTimer = 0.22;
@@ -890,6 +986,15 @@
     for (var ex = explosions.length - 1; ex >= 0; ex--) {
       explosions[ex].life -= dt;
       if (explosions[ex].life <= 0) explosions.splice(ex, 1);
+    }
+    if (game.missiles && game.missiles.length) {
+      for (var mq = 0; mq < game.missiles.length; mq++) {
+        if (Math.random() < 0.6) {
+          var mm = game.missiles[mq];
+          smoke.push({ x: worldX(mm.x) + 8, y: laneY(mm.lane), vx: 16 + Math.random() * 10,
+            vy: (Math.random() - 0.5) * 8, r: 2 + Math.random() * 2, life: 0.5, max: 0.5 });
+        }
+      }
     }
     for (var s = smoke.length - 1; s >= 0; s--) {
       var pf = smoke[s];
@@ -1018,7 +1123,7 @@
       renderedPhase = phase;
       if (phase === 'menu') { menuView = 'home'; renderMenu(); }
       if (phase === 'prep') renderPrep();
-      if (phase === 'battle') banner = { text: 'الموجة ' + game.wave, life: 1.6 };
+      if (phase === 'battle') banner = { text: 'الموجة ' + game.wave, sub: (game.challenge && game.challenge.id !== 'standard') ? game.challenge.name : '', life: 2.0 };
       if (phase === 'result') { renderResult(); Sound.play(game.lastWin ? 'win' : 'lose'); }
     }
   }

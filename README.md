@@ -10,10 +10,11 @@ A lane-based naval defense game. Build your ship in the prep phase, then survive
 
 ## How to play
 
-- **5 lanes.** Enemies sail from right to left toward your ship. Types differ:
-  **fish** are fast and weak, **rafts** are slow and tanky, **submarines**
-  periodically dive and can't be hit while submerged (wait for them to surface),
-  and **bosses** appear every third wave. Tougher types unlock as you progress.
+- **5 lanes, sea & sky.** Lower lanes are the **sea** (enemy ships: fast boats,
+  tanky rafts, diving submarines, and battleship bosses); upper lanes are the
+  **sky** (**planes** and **helicopters**). Tapping a lane auto-fires the right
+  munition for the target there (cannon / flak / rocket). Tougher types unlock
+  as you progress, and a boss appears every third wave.
 - **Combo:** consecutive kills without letting an enemy through raise a gold
   multiplier (up to ×2). A single leak resets it — clean play pays off.
 - **Fire** by tapping a lane button `1`–`5`, or tapping that lane on the playfield. Each shot costs **energy**, which refills over time.
@@ -103,3 +104,11 @@ bugs. This version is a clean rewrite that fixes them:
 - **"War" mode** (the former endless mode): enemy ships stop mid-field and fire
   missiles; toggle between the **cannon** (destroy ships) and the **interceptor**
   (shoot the missiles down).
+- **New flagship + air/sea realism.** The player ship is a detailed battleship
+  sprite; enemies now match their lane — ships in the sea, planes & helicopters
+  in the sky — each with its own auto-matched munition.
+- **Mode-specific contact.** Normal mode: enemies **siege** the ship and grind HP
+  bit by bit (damage varies by enemy type) until destroyed. Fast mode: they
+  **explode** on contact. War mode: they bombard from range.
+- **Per-wave challenges** (سرب / غارة جوية / مدّ سريع / أسطول) shown on the wave
+  banner, and **procedural battle + boss music**.

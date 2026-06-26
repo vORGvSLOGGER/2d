@@ -68,6 +68,64 @@ var Sound = (function () {
 
   function later(ms, fn) { setTimeout(fn, ms); }
 
+  /* ---- procedural background music (battle + boss themes) ---------------- */
+  var mus = { timer: null, step: 0, theme: null, gain: null };
+
+  function mnote(freq, dur, type, vol) {
+    if (!enabled || !ctx || !mus.gain) return;
+    try {
+      var t = ctx.currentTime;
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type || 'triangle';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(mus.gain);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+
+  function musicStep() {
+    if (!ctx) return;
+    var st = mus.step & 15;
+    if (enabled) {
+      if (mus.theme === 'boss') {
+        // relentless low drone + tense A-D-E-D arpeggio + downbeat hits
+        mnote(55, 0.16, 'sawtooth', 0.16);
+        if (st % 2 === 0) mnote(110, 0.12, 'square', 0.05);
+        mnote([440, 587.33, 659.25, 587.33][st % 4], 0.10, 'triangle', 0.05);
+        if (st === 0 || st === 6 || st === 10) mnote(880, 0.18, 'sine', 0.045);
+        if (st % 4 === 0) noise(0.06, 0.05, 1800);
+      } else {
+        // driving naval groove: roots A A F G + gentle A-C-E arpeggio
+        if (st % 4 === 0) mnote([110, 110, 87.31, 98][(st / 4) & 3], 0.34, 'sawtooth', 0.10);
+        mnote([440, 523.25, 659.25, 523.25][st % 4], 0.12, 'triangle', 0.042);
+        if (st === 0 || st === 8) mnote(880, 0.16, 'sine', 0.038);
+      }
+    }
+    mus.step = (mus.step + 1) & 15;
+  }
+
+  function stopMusic() {
+    if (mus.timer) { try { clearInterval(mus.timer); } catch (e) {} mus.timer = null; }
+  }
+
+  function startMusic(theme) {
+    if (!ctx) return;                 // inert without audio (e.g. Node tests)
+    stopMusic();
+    if (!mus.gain) { mus.gain = ctx.createGain(); mus.gain.gain.value = 0.34; mus.gain.connect(master); }
+    mus.theme = theme; mus.step = 0;
+    var bpm = theme === 'boss' ? 166 : 138;
+    try { mus.timer = setInterval(musicStep, 60000 / bpm / 2); } catch (e) {}
+  }
+
+  // Public: Sound.music('battle' | 'boss' | 'stop').
+  function music(theme) {
+    if (theme === 'stop') stopMusic();
+    else startMusic(theme);
+  }
+
   var sfx = {
     shoot:   function () { blip(680, 0.07, 'square', 0.10, 1020); },
     hit:     function () { blip(300, 0.05, 'square', 0.09, 200); },
@@ -86,7 +144,7 @@ var Sound = (function () {
   return {
     init: init, resume: resume,
     setEnabled: setEnabled, isEnabled: isEnabled,
-    play: play,
+    play: play, music: music,
   };
 })();
 
