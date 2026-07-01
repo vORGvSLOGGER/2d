@@ -56,10 +56,13 @@ var CONFIG = {
 
   // Lanes above the horizon are "sky" (aircraft); the rest are "sea" (ships).
   skyLanes: [0, 1],
-  // Normal mode: enemies that reach the ship hold at this line and grind HP.
+  // Normal mode: enemies stop in front of the line here and shell the ship.
   siegeX: 0.085,
+  siegeFireInterval: 0.9, siegeFireJitter: 0.5, siegeShotSpeed: 0.95,
   // Fast mode: contact is a one-shot explosion of contact*burstMul damage.
   burstMul: 3,
+  // Critical hits on the player's shots, and a no-damage "perfect wave" bonus.
+  critChance: 0.12, critMult: 2, perfectBonus: 60,
 
   // Enemy type profiles. category = sea/air; contact = per-second siege damage
   // (or, x burstMul, the explosion damage); ammo = the munition auto-fired at it.
@@ -252,6 +255,7 @@ var Game = (function () {
     this.freeze = 0;
     this.combo = 0;
     this.weapon = 'cannon';
+    this.tookDamage = false;
     this.challenge = this.pickChallenge(this.wave);
     this.spawnLeft = 6 + this.wave * 2 + (this.wave % 3 === 0 ? 1 : 0) + (this.challenge.countAdd || 0);
     this.spawnTimer = 0.4;
@@ -416,7 +420,7 @@ var Game = (function () {
    * stays free of any rendering concern.
    */
   Game.prototype.update = function (dt) {
-    var events = { kills: [], hits: [], leaks: [], chips: [], fires: [] };
+    var events = { kills: [], hits: [], leaks: [], fires: [], efires: [] };
     if (this.phase !== 'battle') return events;
     var s = this.stats();
 
@@ -455,7 +459,7 @@ var Game = (function () {
           e.fireTimer -= dt;
           if (e.fireTimer <= 0) {
             e.fireTimer = CONFIG.war.fireInterval + Math.random() * CONFIG.war.fireJitter;
-            this.missiles.push({ x: e.x - 0.02, lane: e.lane, speed: CONFIG.war.missileSpeed, damage: CONFIG.war.missileDamage });
+            this.missiles.push({ x: e.x - 0.02, lane: e.lane, speed: CONFIG.war.missileSpeed, damage: CONFIG.war.missileDamage, kind: 'missile' });
             events.fires.push({ lane: e.lane, x: e.x });
           }
         }
@@ -463,18 +467,24 @@ var Game = (function () {
       }
       e.x -= e.speed * enemyFactor * dt;
       if (mode.contact === 'siege') {
-        // normal mode: the enemy holds at the ship and grinds HP "bit by bit"
+        // normal mode: the enemy stops in front of the line and shells the ship
         if (e.x <= CONFIG.siegeX) {
           e.x = CONFIG.siegeX;
-          if (!e.sieging) { e.sieging = true; this.combo = 0; }
-          this.hp -= (e.contact || 12) * (1 - s.armor) * dt;
-          e.chipTimer = (e.chipTimer || 0) - dt;
-          if (e.chipTimer <= 0) { e.chipTimer = 0.3; events.chips.push({ lane: e.lane }); }
+          if (!e.sieging) { e.sieging = true; this.combo = 0; e.fireTimer = 0.25 + Math.random() * 0.5; }
+          if (enemyFactor > 0) {
+            e.fireTimer -= dt;
+            if (e.fireTimer <= 0) {
+              e.fireTimer = CONFIG.siegeFireInterval + Math.random() * CONFIG.siegeFireJitter;
+              this.missiles.push({ x: e.x, lane: e.lane, speed: CONFIG.siegeShotSpeed, damage: (e.contact || 12), kind: 'shell' });
+              events.efires.push({ lane: e.lane, x: e.x });
+            }
+          }
         }
       } else if (e.x <= CONFIG.enemyReachX) {
         // fast mode: a one-shot explosion on contact
         this.hp -= (e.contact || 12) * CONFIG.burstMul * (1 - s.armor);
         this.combo = 0;
+        this.tookDamage = true;
         events.leaks.push({ lane: e.lane });
         this.enemies.splice(i, 1);
       }
@@ -487,7 +497,8 @@ var Game = (function () {
       if (ms.x <= CONFIG.enemyReachX) {
         this.hp -= ms.damage * (1 - s.armor);
         this.combo = 0;
-        events.leaks.push({ lane: ms.lane });
+        this.tookDamage = true;
+        events.leaks.push({ lane: ms.lane, kind: ms.kind });
         this.missiles.splice(mi, 1);
       }
     }
@@ -513,7 +524,9 @@ var Game = (function () {
         var en = this.enemies[m];
         // submerged submarines are untargetable — shots pass over them
         if (en.lane === shot.lane && !en.submerged && Math.abs(en.x - shot.x) < CONFIG.hitRadius) {
-          en.hp -= shot.damage;
+          var crit = Math.random() < CONFIG.critChance;
+          var dmg = shot.damage * (crit ? CONFIG.critMult : 1);
+          en.hp -= dmg;
           this.shots.splice(j, 1);
           if (en.hp <= 0) {
             this.combo++;
@@ -521,10 +534,10 @@ var Game = (function () {
             this.gold += reward;
             this.earned += reward;
             this.kills++;
-            events.kills.push({ x: en.x, lane: en.lane, reward: reward, kind: en.kind, combo: this.combo });
+            events.kills.push({ x: en.x, lane: en.lane, reward: reward, kind: en.kind, combo: this.combo, crit: crit });
             this.enemies.splice(m, 1);
           } else {
-            events.hits.push({ x: en.x, lane: en.lane });
+            events.hits.push({ x: en.x, lane: en.lane, dmg: Math.round(dmg), crit: crit });
           }
           break;
         }
@@ -540,12 +553,17 @@ var Game = (function () {
 
   Game.prototype._endWave = function (win) {
     this.lastWin = win;
+    this.perfectWave = win && !this.tookDamage;
     if (win) {
       var bonus = Math.round((40 + this.wave * 18) * this.stats().goldBonus);
       this.gold += bonus;
       this.earned += bonus;
-      // medals: +1 per wave cleared, +2 extra on boss waves; banked immediately
-      var medals = 1 + (this.wave % 3 === 0 ? 2 : 0);
+      if (this.perfectWave) {
+        var pb = Math.round(CONFIG.perfectBonus * this.stats().goldBonus);
+        this.gold += pb; this.earned += pb;
+      }
+      // medals: +1 per wave, +2 on boss waves, +1 for a no-damage perfect wave
+      var medals = 1 + (this.wave % 3 === 0 ? 2 : 0) + (this.perfectWave ? 1 : 0);
       this.meta.medals += medals;
       this.medalsRun += medals;
       this._saveMeta();

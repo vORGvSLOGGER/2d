@@ -41,6 +41,9 @@
   var damageFlash = 0;     // red full-screen flash when the ship is hit
   var shakeMag = 0;        // current screen-shake magnitude (px)
   var banner = null;       // { text, life } wave-intro banner
+  var callout = null;      // big centered hype text (combo / boss warning)
+  var lastCombo = 0;
+  var bossWarned = false;
   var clock = 0;
   var paused = false;
   var muted = false;
@@ -172,7 +175,7 @@
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    marginLeft = Math.max(48, W * 0.12);
+    marginLeft = Math.max(82, W * 0.22);
     horizonY = H * 0.33;
     initScenery();
   }
@@ -323,6 +326,7 @@
       var events = game.update(dt);
       spawnEffects(events);
       emitSmoke(dt);
+      updateHype(events);
     }
     updateEffects(dt);
 
@@ -373,6 +377,7 @@
     drawDamageFlash();
     drawLowHpWarning();
     drawCombo();
+    drawCallout();
     drawBanner();
   }
 
@@ -393,7 +398,7 @@
 
   function drawMuzzles() {
     muzzles.forEach(function (mz) {
-      var x = marginLeft + 4;
+      var x = shipBowX();
       var y = laneY(mz.lane);
       var a = Math.max(0, mz.life / 0.1);
       ctx.globalAlpha = a;
@@ -575,10 +580,13 @@
     ctx.setLineDash([]);
   }
 
+  function shipBowX() { return marginLeft - 4; } // the ship's firing point, just before the line
+
   function drawShip() {
-    if (shipImgReady) { drawShipSprite(shipX() + 20, shipY(), 168, shipRecoil); return; }
+    var w = 150, cx = shipBowX() - w / 2, cy = shipY();
+    if (shipImgReady) { drawShipSprite(cx, cy, w, shipRecoil); return; }
     ctx.save();
-    ctx.translate(shipX(), shipY());
+    ctx.translate(cx, cy);
     ctx.rotate(Math.sin(clock * 1.2) * 0.02); // gentle pitch
     drawWarship(0, 0, 1.3, shipRecoil);
     ctx.restore();
@@ -848,6 +856,14 @@
   // war-mode enemy missile: a warhead flying left with a flame trail
   function drawMissile(m) {
     var x = worldX(m.x), y = laneY(m.lane);
+    if (m.kind === 'shell') {
+      var st = ctx.createLinearGradient(x, y, x + 16, y);
+      st.addColorStop(0, 'rgba(255,90,70,0.9)'); st.addColorStop(1, 'rgba(255,90,70,0)');
+      ctx.fillStyle = st; ctx.fillRect(x, y - 1.4, 16, 2.8);
+      ctx.fillStyle = '#ffd0b0'; ctx.shadowColor = '#ff5a46'; ctx.shadowBlur = 8;
+      circle(x, y, 3); ctx.shadowBlur = 0;
+      return;
+    }
     var tr = ctx.createLinearGradient(x, y, x + 22, y);
     tr.addColorStop(0, 'rgba(255,120,60,0.9)');
     tr.addColorStop(1, 'rgba(255,120,60,0)');
@@ -884,14 +900,22 @@
     events.hits.forEach(function (hit) {
       var x = worldX(hit.x);
       var y = laneY(hit.lane);
-      for (var i = 0; i < 4; i++) {
-        var a = Math.random() * Math.PI * 2;
+      var crit = hit.crit;
+      var n = crit ? 9 : 4;
+      for (var i = 0; i < n; i++) {
+        var a = Math.random() * Math.PI * 2, sp = crit ? 110 : 60;
         particles.push({
           x: x, y: y,
-          vx: Math.cos(a) * 60, vy: Math.sin(a) * 60,
-          life: 0.25, max: 0.25, size: 1.5 + Math.random() * 1.5, color: '#fff7cc',
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          life: crit ? 0.35 : 0.25, max: crit ? 0.35 : 0.25,
+          size: (crit ? 2 : 1.5) + Math.random() * 1.5, color: crit ? '#ffd45c' : '#fff7cc',
         });
       }
+      if (hit.dmg != null && !hit.intercept) {
+        floats.push({ x: x, y: y - 14, vy: -38, life: 0.7,
+          text: (crit ? 'حرِج ' : '') + hit.dmg, color: crit ? '#ffd45c' : '#dfeaff', size: crit ? 18 : 12 });
+      }
+      if (crit) { Sound.play('crit'); setShake(4); }
     });
     if (events.hits.length) Sound.play('hit');
 
@@ -910,9 +934,10 @@
           life: 0.6, max: 0.6, size: 2 + Math.random() * 3, color: color,
         });
       }
-      floats.push({ x: x, y: y - 18, vy: -42, life: 1.0, text: '+' + kill.reward });
+      floats.push({ x: x, y: y - 18, vy: -42, life: 1.0, text: '+' + kill.reward, color: '#ffd45c', size: 16 });
       Sound.play(boss ? 'boss' : 'kill');
-      if (boss) setShake(10);
+      if (boss) setShake(12);
+      else if (kill.crit) setShake(4);
     });
 
     events.leaks.forEach(function (leak) {
@@ -921,8 +946,8 @@
       Sound.play('damage');
       vibrate(45);
       var y = laneY(leak.lane);
-      var x = marginLeft;
-      // a clear impact blast — every mode, so contact reads as an explosion
+      var x = shipBowX();
+      // a clear impact blast on the hull — contact / shells / missiles
       explosions.push({ x: x, y: y, r: 6, max: 36, life: 0.34, maxLife: 0.34 });
       for (var i = 0; i < 16; i++) {
         var ang = Math.random() * Math.PI * 2;
@@ -936,17 +961,16 @@
       }
     });
 
-    // sieging enemies (normal mode): small ongoing "chip" sparks, not a blast
-    events.chips.forEach(function (c) {
-      damageFlash = Math.min(1, damageFlash + 0.22);
-      setShake(2.5);
-      var cy = laneY(c.lane), cx = marginLeft + 6;
-      for (var i = 0; i < 3; i++) {
-        particles.push({ x: cx, y: cy, vx: -(25 + Math.random() * 45), vy: (Math.random() - 0.5) * 70,
-          life: 0.3, max: 0.3, size: 1.4 + Math.random() * 1.4, color: '#ff9a4d' });
+    // normal-mode enemy shells: a muzzle flash at the firing enemy
+    events.efires.forEach(function (fr) {
+      var ex = worldX(fr.x), ey = laneY(fr.lane);
+      for (var i = 0; i < 4; i++) {
+        var a = Math.PI + (Math.random() - 0.5) * 1.2;
+        particles.push({ x: ex, y: ey, vx: Math.cos(a) * 60, vy: Math.sin(a) * 40,
+          life: 0.2, max: 0.2, size: 1.3 + Math.random() * 1.3, color: '#ff8a5a' });
       }
     });
-    if (events.chips.length) { Sound.play('hit'); vibrate(8); }
+    if (events.efires.length) Sound.play('shoot');
 
     // war-mode missile launches: a muzzle flash at the firing ship
     events.fires.forEach(function (fr) {
@@ -958,6 +982,41 @@
       }
     });
     if (events.fires.length) Sound.play('shoot');
+  }
+
+  var COMBO_CALLS = { 5: 'كومبو!', 10: 'اكتساح!', 15: 'مدمّر!', 20: 'لا يُوقَف!' };
+  function updateHype() {
+    var c = game.combo;
+    if (c > lastCombo && (COMBO_CALLS[c] || (c > 20 && c % 10 === 0))) {
+      callout = { text: COMBO_CALLS[c] || ('سحق! ×' + c), life: 0.9, color: '#ffd45c', size: c >= 15 ? 36 : 28 };
+      Sound.play('upgrade');
+    }
+    lastCombo = c;
+    var hasBoss = false;
+    for (var i = 0; i < game.enemies.length; i++) if (game.enemies[i].kind === 'boss') { hasBoss = true; break; }
+    if (hasBoss && !bossWarned) {
+      bossWarned = true;
+      callout = { text: '⚠ الزعيم القادم', life: 1.4, color: '#ff5d6c', size: 34 };
+      setShake(8); Sound.play('boss');
+    } else if (!hasBoss) {
+      bossWarned = false;
+    }
+  }
+
+  function drawCallout() {
+    if (!callout) return;
+    var t = callout.life, a = Math.min(1, t * 2.2), sc = 1 + Math.max(0, 1 - t) * 0.3;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(W / 2, H * 0.44);
+    ctx.scale(sc, sc);
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 14;
+    ctx.fillStyle = callout.color || '#ffd45c';
+    ctx.font = '900 ' + (callout.size || 30) + 'px "Tajawal", Tahoma, sans-serif';
+    ctx.fillText(callout.text, 0, 0);
+    ctx.restore();
+    ctx.globalAlpha = 1; ctx.textAlign = 'start';
   }
 
   // Ship layout helpers (kept in one place so smoke / muzzle line up with art)
@@ -1016,6 +1075,7 @@
       if (muzzles[m].life <= 0) muzzles.splice(m, 1);
     }
     if (banner) { banner.life -= dt; if (banner.life <= 0) banner = null; }
+    if (callout) { callout.life -= dt; if (callout.life <= 0) callout = null; }
   }
 
   function drawParticles() {
@@ -1029,12 +1089,12 @@
 
   function drawFloats() {
     ctx.textAlign = 'center';
-    ctx.font = '900 16px "Tajawal", Tahoma, sans-serif';
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 6;
     floats.forEach(function (f) {
       ctx.globalAlpha = Math.max(0, Math.min(1, f.life));
-      ctx.fillStyle = '#ffd45c';
-      ctx.shadowColor = 'rgba(0,0,0,0.6)';
-      ctx.shadowBlur = 6;
+      ctx.fillStyle = f.color || '#ffd45c';
+      ctx.font = '900 ' + (f.size || 16) + 'px "Tajawal", Tahoma, sans-serif';
       ctx.fillText(f.text, f.x, f.y);
     });
     ctx.shadowBlur = 0;
@@ -1256,6 +1316,7 @@
         '<div class="result-emoji">' + (win ? '🎉' : '🌊') + '</div>' +
         '<div class="result-title ' + (win ? 'win' : 'lose') + '">' +
           (win ? 'تم صد الموجة' : 'غرقت السفينة') + '</div>' +
+        (game.perfectWave ? '<div style="color:#ffd45c;font-weight:900;margin-top:6px;font-size:16px">⭐ موجة مثالية! مكافأة إضافية</div>' : '') +
         '<div class="result-stats">' +
           '<div class="rs"><span>🌊 الموجة</span><b>' + game.wave + '</b></div>' +
           '<div class="rs"><span>💥 أعداء مُدمَّرة</span><b>' + game.kills + '</b></div>' +

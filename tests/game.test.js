@@ -246,14 +246,14 @@ test('medals are earned per wave and persist; meta upgrades apply', function () 
   var g = new Game(store);
   g.startRun('normal');
   function clearWave() { g.startWave(); g.enemies = []; g.spawnLeft = 0; g.update(1 / 60); }
-  clearWave();               // wave 1 -> +1
-  assert.strictEqual(g.meta.medals, 1, 'one medal per wave');
-  g.continueAfterWin(); clearWave();   // wave 2 -> +1
-  g.continueAfterWin(); clearWave();   // wave 3 (boss) -> +1 +2
-  assert.strictEqual(g.meta.medals, 5, 'boss wave grants the +2 bonus');
+  clearWave();               // wave 1 (no damage) -> +1 wave +1 perfect
+  assert.strictEqual(g.meta.medals, 2, 'wave + perfect-clear medal');
+  g.continueAfterWin(); clearWave();   // wave 2 (perfect) -> +2
+  g.continueAfterWin(); clearWave();   // wave 3 (boss, perfect) -> +1 +2 +1
+  assert.strictEqual(g.meta.medals, 8, 'boss + perfect bonuses stack');
 
   var g2 = new Game(store);
-  assert.strictEqual(g2.meta.medals, 5, 'medals persist across reload');
+  assert.strictEqual(g2.meta.medals, 8, 'medals persist across reload');
 
   g2.startRun('normal');
   var s0 = g2.stats().maxHp;
@@ -418,16 +418,49 @@ test('enemies match their lane domain (air in sky, ships at sea)', function () {
   assert.ok(air > 0 && sea > 0, 'both air and sea enemies spawn');
 });
 
-test('normal mode: a reached enemy sieges and grinds HP without vanishing', function () {
+test('normal mode: a reached enemy stops and shells the ship', function () {
   var g = new Game(); g.startRun('normal'); g.startWave();
   g.spawnLeft = 0;
   g.enemies = [{ x: 0.2, lane: 3, hp: 999, maxHp: 999, speed: 0.3, kind: 'raft', category: 'sea', ammo: 'cannon', contact: 22, submerged: false }];
-  var hp0 = g.hp;
-  for (var i = 0; i < 60; i++) g.update(1 / 60);
-  assert.strictEqual(g.enemies.length, 1, 'sieging enemy stays on the field');
-  assert.ok(g.enemies[0].sieging, 'enemy is marked sieging');
-  assert.ok(Math.abs(g.enemies[0].x - CONFIG.siegeX) < 1e-6, 'pinned at the siege line');
-  assert.ok(g.hp < hp0 && g.hp > hp0 - 30, 'HP grinds down gradually (not a big burst)');
+  g.missiles = [];
+  var hp0 = g.hp, fired = false;
+  for (var i = 0; i < 180; i++) { var ev = g.update(1 / 60); if (ev.efires.length) fired = true; }
+  assert.strictEqual(g.enemies.length, 1, 'the enemy stays (siege) until destroyed');
+  assert.ok(g.enemies[0].sieging, 'enemy is sieging');
+  assert.ok(Math.abs(g.enemies[0].x - CONFIG.siegeX) < 1e-6, 'pinned in front of the line');
+  assert.ok(fired, 'it fires shells at the ship');
+  assert.ok(g.hp < hp0, 'its shells damage the ship');
+});
+
+test('critical hits double the shot damage', function () {
+  var g = new Game(); g.startRun('normal'); g.startWave(); g.spawnLeft = 0;
+  var old = CONFIG.critChance; CONFIG.critChance = 1; // force a crit
+  g.enemies = [{ x: 0.1, lane: 0, hp: 1000, maxHp: 1000, speed: 0, kind: 'fish', category: 'sea', ammo: 'cannon', submerged: false }];
+  g.shots = [{ x: 0.099, lane: 0, damage: 50, speed: 1.3, kind: 'cannon' }];
+  var ev = g.update(1 / 60);
+  CONFIG.critChance = old;
+  assert.ok(ev.hits.length === 1 && ev.hits[0].crit === true, 'hit flagged as crit');
+  assert.strictEqual(ev.hits[0].dmg, 100, 'crit deals 2x (50 -> 100)');
+  assert.strictEqual(g.enemies[0].hp, 900, 'enemy took 100 damage');
+});
+
+test('a no-damage clear awards the perfect-wave bonus', function () {
+  var g = new Game(); g.startRun('normal'); g.startWave();
+  g.spawnLeft = 0; g.enemies = [];
+  g.update(1 / 60);
+  assert.strictEqual(g.phase, 'result');
+  assert.ok(g.lastWin && g.perfectWave, 'perfect wave flagged on a clean clear');
+});
+
+test('taking damage forfeits the perfect-wave flag', function () {
+  var g = new Game(); g.startRun('normal'); g.startWave();
+  g.spawnLeft = 5;
+  g.missiles = [{ x: 0.02, lane: 0, speed: 0.5, damage: 16, kind: 'shell' }];
+  for (var i = 0; i < 30; i++) g.update(1 / 60);
+  assert.ok(g.tookDamage, 'damage recorded');
+  g.enemies = []; g.missiles = []; g.spawnLeft = 0;
+  g.update(1 / 60);
+  assert.ok(g.lastWin && !g.perfectWave, 'not perfect after taking damage');
 });
 
 test('fast mode: a reached enemy explodes once and is removed', function () {

@@ -112,3 +112,9 @@ bugs. This version is a clean rewrite that fixes them:
   **explode** on contact. War mode: they bombard from range.
 - **Per-wave challenges** (سرب / غارة جوية / مدّ سريع / أسطول) shown on the wave
   banner, and **procedural battle + boss music**.
+- **Combat refinements + hype.** The flagship sits just before the firing line
+  and shells emanate from it; in Normal mode enemies stop in front of the line
+  and **fire at the hull**. Added critical hits with floating damage numbers,
+  combo / boss call-outs, a no-damage **perfect-wave** bonus, and a richer
+  **layered soundtrack** (warm chord pads + bass + groove + reverb, distinct
+  boss theme) — well beyond the old chiptune.
